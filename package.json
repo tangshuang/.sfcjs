@@ -1,0 +1,24 @@
+{
+  "name": "sfcjs",
+  "version": "0.0.1",
+  "description": "Cool runtime single file component",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangshuang/sfcjs.git"
+  },
+  "keywords": [
+    "sfc",
+    "js",
+    "framework"
+  ],
+  "author": "tangshuang",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/tangshuang/sfcjs/issues"
+  },
+  "homepage": "https://github.com/tangshuang/sfcjs#readme"
+}
