@@ -1,0 +1,56 @@
+<script>
+  import SomeComponent from 'sfc::./some-component.htm'
+
+  const emit = await import('sfc::emit')
+
+  const name = 'static name'
+  let age = 10
+
+  function grow(e) {
+    age ++
+    emit('grow', age)
+  }
+
+  const colors = [
+    '#fee',
+    '#ccd',
+    '#a97',
+  ]
+</script>
+
+<style>
+  .age {
+    color: var(('colors[age % 3]'));
+  }
+
+  @fns {
+    some() {
+      color: #000;
+    }
+  }
+
+  @if age % 5 === 0 && age > 10 {
+    .age {
+      font-size: 24px;
+      some();
+    }
+  }
+  @else {
+    .age {
+      font-size: 12px;
+    }
+  }
+
+  @for color,index of colors {
+    .age-{{index + 10}} {
+      color: var(color)
+    }
+  }
+</style>
+
+<div>
+  <span>{{name}}:</span>
+  <span class="age" :class="'age-' + age" :some-attr="age * 5 > 10 ? 'ok' : undefined" :style="age / 3 > 10 ? 'color: red;' : undefined">{{age}}</span>
+  <button onclick="grow(event)">grow</button>
+  <some-component :some="age"></some-component>
+</div>
