@@ -21,19 +21,12 @@
 
 <style>
   .age {
-    color: var(('colors[age % 3]'));
-  }
-
-  @fns {
-    some() {
-      color: #000;
-    }
+    color: var('[[ colors[age % 3] ]]');
   }
 
   @if age % 5 === 0 && age > 10 {
     .age {
       font-size: 24px;
-      some();
     }
   }
   @else {
@@ -43,7 +36,7 @@
   }
 
   @for color,index of colors {
-    .age-{{index + 10}} {
+    .age-[[index + 10]] {
       color: var(color)
     }
   }
