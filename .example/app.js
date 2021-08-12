@@ -1,36 +1,35 @@
-SFCJS.define('/app.htm', ['./some.htm', 'emit', 'props'], function(SomeComponent, emit, props) {
+SFCJS.define('/app.htm', ['./some.htm', 'emit', 'props'], async function(SomeComponent, emit, props) {
   const name = 'static name'
+
+  let age = SFCJS.reactive(10, () => age)
+
+  function grow() {
+    age ++
+    emit('grow', age)
+  }
+
   const colors = [
     '#fee',
     '#ccd',
     '#a97',
   ]
 
-  const scope = SFCJS.reactive({
-    age: 10,
-  })
-
-  function grow() {
-    scope.age ++
-    emit('grow', scope.age)
-  }
-
   const components = {
     SomeComponent,
   }
 
   return {
-    scope,
     components,
     style(r) {
-      const some = () => ({
-        color: '#000'
+      const some = (color, age) => ({
+        color: color,
+        fontSize: age,
       })
 
       return [
-        r('.age', { color: colors[scope.age % 3] }),
-        scope.age % 5 === 0 && scope.age > 10
-          ? r('.age', { fontSize: 24 }, some())
+        r('.age', { color: colors[age % 3] }),
+        age % 5 === 0 && age > 10
+          ? r('.age', { fontSize: 24 }, some('red', age))
           : r('.age', { fontSize: 12 }),
         colors.map((color, index) => r(`.age-${index + 10}`, { color })),
       ]
@@ -49,10 +48,10 @@ SFCJS.define('/app.htm', ['./some.htm', 'emit', 'props'], function(SomeComponent
         h(
           'span',
           {
-            class: ['age', 'age-' + scope.age],
-            style: scope.age / 3 > 10 ? 'color: red;' : undefined,
+            class: ['age', 'age-' + age],
+            style: age / 3 > 10 ? 'color: red;' : undefined,
           },
-          scope.age,
+          age,
         ),
         h(
           'button',
@@ -70,7 +69,7 @@ SFCJS.define('/app.htm', ['./some.htm', 'emit', 'props'], function(SomeComponent
               name: "xxx",
             },
             props: {
-              someAttr: scope.age,
+              someAttr: age,
             },
           },
         ),

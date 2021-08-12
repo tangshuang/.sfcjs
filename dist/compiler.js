@@ -12,8 +12,7 @@ return /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ([
 /* 0 */,
-/* 1 */,
-/* 2 */
+/* 1 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -736,7 +735,7 @@ function addParent(obj, parent) {
 
 
 /***/ }),
-/* 3 */
+/* 2 */
 /***/ ((__unused_webpack_module, exports) => {
 
 
@@ -846,7 +845,7 @@ function parseHtmlToAst(html, visit) {
           _char = html[i];
         }
 
-        var _node = [tag];
+        var _node = [tag.trim()];
         inTagBegin = _node;
         nodes.push(_node);
         i--;
@@ -1605,12 +1604,13 @@ function patchAst(ast, mutations, tiny) {
 
 
 /***/ }),
-/* 4 */
+/* 3 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "each": () => (/* binding */ each)
+/* harmony export */   "each": () => (/* binding */ each),
+/* harmony export */   "clear": () => (/* binding */ clear)
 /* harmony export */ });
 function each(obj, fn) {
   const keys = Object.keys(obj)
@@ -1619,6 +1619,10 @@ function each(obj, fn) {
     const value = obj[key]
     fn(key, value)
   }
+}
+
+function clear(str) {
+  return str.replace(/\/\*.*?\*\//gmi, '').replace(/\/\/.*?[\n$]/, '')
 }
 
 
@@ -1689,35 +1693,23 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   "compileComponent": () => (/* binding */ compileComponent),
 /* harmony export */   "loadComponent": () => (/* binding */ loadComponent)
 /* harmony export */ });
-/* harmony import */ var _css_parser__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(2);
-/* harmony import */ var abs_html__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(3);
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(4);
+/* harmony import */ var _css_parser__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
+/* harmony import */ var abs_html__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(2);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(3);
 // import { parse as parseJs } from '@babel/parser'
 
 
 
 
 function parseJs(sourceCode) {
-  // const imports = []
-  // const declares = []
-  // const scripts = []
-
-  // const lines = sourceCode.split('\n')
-  // for (let i = 0, len = lines.length; i < len; i ++) {
-  //   const line = lines[i]
-  //   const words = line.split(' ')
-  //   const firstWord = words.find(item => !!item)
-  //   const isImport = words.some(item => item === 'import' || /import\(.+?\)/.test(item))
-  //   const isDeclare = ['var', 'let', 'const', 'function'].includes(firstWord)
-
-  //   if (isImport) {
-  //     imports.push(line)
-  //   }
-  // }
-
   const deps = []
-  const code = sourceCode
+  const imports = []
+  const components = []
+  const scripts = sourceCode
     .replace(/import([\w\W]*?)from\s*?['"]sfc:(.+?)['"][;\n$]/gmi, (_, declares, src) => {
+      if (src.indexOf('.') === 0 || src.indexOf('/') === 0) {
+        components.push([declares.trim(), src])
+      }
       deps.push([declares.trim(), src])
       return ''
     })
@@ -1725,31 +1717,101 @@ function parseJs(sourceCode) {
       deps.push([declares.trim(), src])
       return ''
     })
-
-  console.log(code, deps)
-
-}
-
-function parseComponent(text) {
-  let jsAst = null
-  let cssAst = null
-  const html = text
-    .replace(/<script.*?>([\w\W]*?)<\/script>\n?/gmi, (_, sourceCode) => {
-      jsAst = parseJs(sourceCode, {
-        sourceType: "module",
-        plugins: [
-          'topLevelAwait',
-          'classStaticBlock',
-        ],
-      })
-      return ''
-    }).replace(/<style>([\w\W]*?)<\/style>\n?/gmi, (_, sourceCode) => {
-      // console.log(sourceCode.split('\n').map((item, i) => (i + 1) + '\t' + item).join('\n'))
-      cssAst = (0,_css_parser__WEBPACK_IMPORTED_MODULE_0__.default)(sourceCode)
+    .replace(/import([\w\W]*?)from\s*?['"](.+?)['"][;\n$]/gmi, (_, declares, src) => {
+      imports.push([declares.trim(), src])
       return ''
     })
-  const htmlAst = (0,abs_html__WEBPACK_IMPORTED_MODULE_1__.parseHtmlToAst)(html.trim())
 
+  const lines = scripts.split('\n').reduce((lines, current) => {
+    const last = lines[lines.length - 1]
+    const isCurrentEmpty = !current.trim()
+    if (!last && isCurrentEmpty) {
+      return lines
+    }
+
+    if (!last) {
+      lines.push(current)
+      return lines
+    }
+
+    const isLastEmpty = !last.trim()
+    if (isLastEmpty && isCurrentEmpty) {
+      return lines
+    }
+
+    lines.push(current)
+    return lines
+  }, [])
+
+  let code = ''
+  let reactive = ''
+
+  const genReactive = () => {
+    code += reactive.replace(/let\s+?(\w+?)\s*?=([\W\w]+?)[;\n$]/gmi, (_, name, value) => {
+      return `let ${name} = SFCJS.reactive(${value.trim()}, () => ${name})`
+    })
+    code += '\n'
+  }
+
+  for (let i = 0, len = lines.length; i < len; i ++) {
+    const line = lines[i]
+
+    if (/^let\s+?\w+?\s*?=.*?;/.test(line.trim())) {
+      code += line.replace(/let\s+?(\w+?)\s*?=(.*?);/, (_, name, value) => {
+        return `let ${name} = SFCJS.reactive(${value.trim()}, () => ${name});`
+      })
+      code += '\n'
+      continue
+    }
+
+    if (/^let\s+?\w+?\s*?=.*?$/.test(line.trim())) {
+      reactive += line + '\n'
+
+      for (++ i; i < len; i ++) {
+        const nextLine = lines[i]
+        const str = (0,_utils__WEBPACK_IMPORTED_MODULE_2__.clear)(nextLine)
+
+        if (['let ', 'const ', 'var ', 'function', '[', '(', ';', 'async '].some(item => str.indexOf(item) === 0)) {
+          genReactive()
+          i --
+          break
+        }
+
+        reactive += nextLine + '\n'
+
+        if ([';', '}', ')'].includes(str[str.length - 1])) {
+          genReactive()
+          break
+        }
+      }
+      console.log(reactive)
+
+      continue
+    }
+
+    code += line + '\n'
+  }
+
+  return {
+    imports,
+    deps,
+    components,
+    code,
+  }
+}
+
+function parseCss(sourceCode, source) {
+  const ast = (0,_css_parser__WEBPACK_IMPORTED_MODULE_0__.default)(sourceCode, { source })
+  console.log(ast)
+  let code = 'function(r) {\n'
+  code += '}'
+  return code
+}
+
+function parseHtml(sourceCode, source) {
+  const htmlAst = (0,abs_html__WEBPACK_IMPORTED_MODULE_1__.parseHtmlToAst)(sourceCode.trim())
+
+  let code = 'function(h) {\n'
   ;(0,abs_html__WEBPACK_IMPORTED_MODULE_1__.traverseAst)(htmlAst, {
     '*': {
       enter(node, parent) {
@@ -1761,32 +1823,55 @@ function parseComponent(text) {
       },
     },
   })
+  console.log(htmlAst)
+  code += '}'
 
-  const deps = {}
-  // const scope = {}
-  // const deepth = {}
+  return code
+}
 
-  // let jsCode
-  // const traverse = (ast) => {
-  //   each(ast, (key, value) => {})
-  // }
-  // console.log(jsAst)
+function parseComponent(text, source) {
+  let jsSource = null
+  let cssCode = null
+
+  const html = text
+    .replace(/<script.*?>([\w\W]*?)<\/script>\n?/gmi, (_, sourceCode) => {
+      jsSource = parseJs(sourceCode, source)
+      return ''
+    })
+    .replace(/<style>([\w\W]*?)<\/style>\n?/gmi, (_, sourceCode) => {
+      cssCode = parseCss(sourceCode, source)
+      return ''
+    })
+    .trim()
+
+  const htmlCode = parseHtml(html, source)
+  const { imports, deps, code: jsCode, components } = jsSource
 
   return {
+    imports,
     deps,
-    jsAst,
-    cssAst,
-    htmlAst,
+    components,
+    jsCode,
+    cssCode,
+    htmlCode,
   }
 }
 
-function genComponent(asts) {
-  return asts
+function genComponent({ imports, deps, components, jsCode, cssCode, htmlCode }, source) {
+  const output = [
+    ...imports.map(([vars, src]) => `import ${vars} from "${src}";`),
+    `SFCJS.define("${source}", [${deps.map(([, src]) => `"${src}"`).join(', ')}], function(${deps.map(([name]) => `${name}`).join(', ')}) {`,
+    jsCode,
+    `  const components = {\n${components.map(([name]) => `    ${name}`).join(',\n')}\n  }`,
+    `  return {\n    components,\n    css: ${cssCode},\n    dom: ${htmlCode}\n  }`,
+    '});',
+  ].join('\n')
+  return output
 }
 
-function compileComponent(text) {
-  const asts = parseComponent(text)
-  const code = genComponent(asts)
+function compileComponent(text, source) {
+  const asts = parseComponent(text, source)
+  const code = genComponent(asts, source)
   console.log(code)
   return code
 }

@@ -7,6 +7,10 @@
   const name = 'static name'
   let age = 10
 
+  let some = {
+    name: 'name',
+  }
+
   function grow(e) {
     age ++
     emit('grow', age)
@@ -21,12 +25,20 @@
 
 <style>
   .age {
-    color: var('[[ colors[age % 3] ]]');
+    color: ('colors[age % 3]');
+  }
+
+  @fns {
+    some(color, age) {
+      color: [[color]];
+      font-size: [[age]]px;
+    }
   }
 
   @if age % 5 === 0 && age > 10 {
     .age {
       font-size: 24px;
+      fns: some(red, [[age]]);
     }
   }
   @else {
@@ -37,7 +49,7 @@
 
   @for color,index of colors {
     .age-[[index + 10]] {
-      color: var(color)
+      color: [[color]];
     }
   }
 </style>

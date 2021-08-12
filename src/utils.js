@@ -6,3 +6,7 @@ export function each(obj, fn) {
     fn(key, value)
   }
 }
+
+export function clear(str) {
+  return str.replace(/\/\*.*?\*\//gmi, '').replace(/\/\/.*?[\n$]/, '')
+}
