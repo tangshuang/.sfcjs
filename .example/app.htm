@@ -1,7 +1,8 @@
 <script>
-  import SomeComponent from 'sfc::./some-component.htm'
+  import SomeComponent from 'sfc:./some.htm'
+  import emit from 'sfc:emit'
 
-  const emit = await import('sfc::emit')
+  const props = await import('sfc:props')
 
   const name = 'static name'
   let age = 10
@@ -48,9 +49,17 @@
   }
 </style>
 
-<div>
+<div class="app">
+  <h3>{{props.title}}</h3>
   <span>{{name}}:</span>
-  <span class="age" :class="'age-' + age" :some-attr="age * 5 > 10 ? 'ok' : undefined" :style="age / 3 > 10 ? 'color: red;' : undefined">{{age}}</span>
+  <span
+    class="age"
+    :class="'age-' + age"
+    :style="age / 3 > 10 ? 'color: red;' : undefined"
+  >{{age}}</span>
   <button onclick="grow(event)">grow</button>
-  <some-component :some="age"></some-component>
+  <some-component
+    name="xxx"
+    :some-attr="age * 5 > 10 ? 'ok' : undefined"
+  ></some-component>
 </div>

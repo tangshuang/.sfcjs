@@ -20,5 +20,12 @@
   "bugs": {
     "url": "https://github.com/tangshuang/sfcjs/issues"
   },
-  "homepage": "https://github.com/tangshuang/sfcjs#readme"
+  "homepage": "https://github.com/tangshuang/sfcjs#readme",
+  "dependencies": {
+    "@babel/parser": "^7.15.3",
+    "@babel/standalone": "^7.15.3",
+    "@babel/traverse": "^7.15.0",
+    "abs-html": "^2.1.0",
+    "css": "^3.0.0"
+  }
 }
