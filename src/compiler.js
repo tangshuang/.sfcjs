@@ -2,12 +2,13 @@
 import parseCssAst from './css-parser'
 import { parseHtmlToAst, traverseAst as traverseHtmlAst } from 'abs-html'
 import { clear } from './utils'
+import { tokenizer } from './js-parser'
 
 function parseJs(sourceCode) {
   const deps = []
   const imports = []
   const components = []
-  const lines = sourceCode
+  const lines = clear(sourceCode)
     .replace(/import([\w\W]*?)from\s*?['"]sfc:(.+?)['"][;\n$]/gmi, (_, declares, src) => {
       if (src.indexOf('.') === 0 || src.indexOf('/') === 0) {
         components.push([declares.trim(), src])
@@ -45,44 +46,62 @@ function parseJs(sourceCode) {
     return lines
   }, []).join('\n')
 
-  const words = scripts.split(/ |(?=\()|(?={)|(?=\n)/)
-  const tokens = []
-  const reactive = []
-  const createReactive = () => {
-    const code = reactive.join(' ')
-    return code.replace(/let(.*?)=([\w\W]+?)$/, (_, name, value) => {
-      return `let ${name.trim()} = SFCJS.reactive(${value.trim()}, () => ${name});\n`
+  const tokens = tokenizer(scripts)
+  const createReactive = (code) => {
+    return code.replace(/let(.*?)=([\w\W]+?);$/, (_, name, value) => {
+      return `let ${name.trim()} = SFCJS.reactive(${value.trim()}, () => ${name.trim()});\n`
     })
   }
-  for (let i = 0, len = words.length; i < len; i ++) {
-    const word = words[i]
-    if (word === 'let') {
-      reactive.push(word)
+
+  let code = ''
+  for (let i = 0, len = tokens.length; i < len; i ++) {
+    const token = tokens[i]
+
+    if (token === 'let') {
+      const localScope = []
+      const start = ['(', '[', '{']
+      const end = [')', ']', '}']
+      let reactive = token
+
       i ++
-      let next = words[i]
+      let next = tokens[i]
+      reactive += next
+
       while (1) {
         if (i >= len) {
+          code += createReactive(reactive)
           break
         }
 
-        if (['let', 'const', 'async', 'function', 'var', 'if', 'for', ';'].includes(next)) {
-          tokens.push(createReactive())
-          reactive.length = 0
-          i --
+        // 结束标记
+        if (!localScope.length && next === ';') {
+          code += createReactive(reactive)
           break
         }
 
-        reactive.push(next)
+        if (start.includes(next)) {
+          localScope.push(next)
+        }
+        else if (end.includes(next)) {
+          const index = end.indexOf(next)
+          const latest = localScope[localScope.length - 1]
+
+          if (latest !== start[index]) {
+            throw new Error(`${start[index]} 尚未关闭 at ${i} ${tokens[i - 1]} ${token} ${tokens[i + 1]}`)
+          }
+
+          localScope.pop()
+        }
+
         i ++
-        next = words[i]
+        next = tokens[i]
+        reactive += next
       }
     }
     else {
-      tokens.push(word)
+      code += token
     }
   }
-
-  const code = tokens.join(' ')
 
   return {
     imports,

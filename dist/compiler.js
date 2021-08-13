@@ -1626,6 +1626,63 @@ function clear(str) {
 }
 
 
+/***/ }),
+/* 4 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "tokenizer": () => (/* binding */ tokenizer)
+/* harmony export */ });
+function tokenizer(code) {
+  const tokens = []
+
+  let cursor = 0
+  let token = ''
+  let str = ''
+
+  for (let len = code.length; cursor < len; cursor ++) {
+    const char = code[cursor]
+
+    if (['(', ')', '[', ']', '{', '}', ';', '\n'].includes(char)) {
+      if (token) {
+        tokens.push(token)
+        token = ''
+      }
+      if (str) {
+        tokens.push(str)
+        str = ''
+      }
+      tokens.push(char)
+    }
+    else if (/\w/.test(char)) {
+      if (str) {
+        tokens.push(str)
+        str = ''
+      }
+      token += char
+    }
+    else {
+      if (token) {
+        tokens.push(token)
+        token = ''
+      }
+      str += char
+    }
+  }
+
+  if (token) {
+    tokens.push(token)
+    token = ''
+  }
+  if (str) {
+    tokens.push(str)
+    str = ''
+  }
+
+  return tokens
+}
+
 /***/ })
 /******/ 	]);
 /************************************************************************/
@@ -1696,7 +1753,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _css_parser__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
 /* harmony import */ var abs_html__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(2);
 /* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(3);
+/* harmony import */ var _js_parser__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(4);
 // import { parse as parseJs } from '@babel/parser'
+
 
 
 
@@ -1705,7 +1764,7 @@ function parseJs(sourceCode) {
   const deps = []
   const imports = []
   const components = []
-  const lines = sourceCode
+  const lines = (0,_utils__WEBPACK_IMPORTED_MODULE_2__.clear)(sourceCode)
     .replace(/import([\w\W]*?)from\s*?['"]sfc:(.+?)['"][;\n$]/gmi, (_, declares, src) => {
       if (src.indexOf('.') === 0 || src.indexOf('/') === 0) {
         components.push([declares.trim(), src])
@@ -1743,44 +1802,62 @@ function parseJs(sourceCode) {
     return lines
   }, []).join('\n')
 
-  const words = scripts.split(/ |(?=\()|(?={)|(?=\n)/)
-  const tokens = []
-  const reactive = []
-  const createReactive = () => {
-    const code = reactive.join(' ')
-    return code.replace(/let(.*?)=([\w\W]+?)$/, (_, name, value) => {
-      return `let ${name.trim()} = SFCJS.reactive(${value.trim()}, () => ${name});\n`
+  const tokens = (0,_js_parser__WEBPACK_IMPORTED_MODULE_3__.tokenizer)(scripts)
+  const createReactive = (code) => {
+    return code.replace(/let(.*?)=([\w\W]+?);$/, (_, name, value) => {
+      return `let ${name.trim()} = SFCJS.reactive(${value.trim()}, () => ${name.trim()});\n`
     })
   }
-  for (let i = 0, len = words.length; i < len; i ++) {
-    const word = words[i]
-    if (word === 'let') {
-      reactive.push(word)
+
+  let code = ''
+  for (let i = 0, len = tokens.length; i < len; i ++) {
+    const token = tokens[i]
+
+    if (token === 'let') {
+      const localScope = []
+      const start = ['(', '[', '{']
+      const end = [')', ']', '}']
+      let reactive = token
+
       i ++
-      let next = words[i]
+      let next = tokens[i]
+      reactive += next
+
       while (1) {
         if (i >= len) {
+          code += createReactive(reactive)
           break
         }
 
-        if (['let', 'const', 'async', 'function', 'var', 'if', 'for', ';'].includes(next)) {
-          tokens.push(createReactive())
-          reactive.length = 0
-          i --
+        // 结束标记
+        if (!localScope.length && next === ';') {
+          code += createReactive(reactive)
           break
         }
 
-        reactive.push(next)
+        if (start.includes(next)) {
+          localScope.push(next)
+        }
+        else if (end.includes(next)) {
+          const index = end.indexOf(next)
+          const latest = localScope[localScope.length - 1]
+
+          if (latest !== start[index]) {
+            throw new Error(`${start[index]} 尚未关闭 at ${i} ${tokens[i - 1]} ${token} ${tokens[i + 1]}`)
+          }
+
+          localScope.pop()
+        }
+
         i ++
-        next = words[i]
+        next = tokens[i]
+        reactive += next
       }
     }
     else {
-      tokens.push(word)
+      code += token
     }
   }
-
-  const code = tokens.join(' ')
 
   return {
     imports,
