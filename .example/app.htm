@@ -24,21 +24,25 @@
 </script>
 
 <style>
+  .name {
+    color: #ffe;
+  }
   .age {
-    color: ('colors[age % 3]');
+    color: ('{{ colors[age % 3] }}');
   }
 
   @fns {
     some(color, age) {
+      outline: none;
       color: [[color]];
       font-size: [[age]]px;
     }
   }
 
-  @if age % 5 === 0 && age > 10 {
+  @if [[age % 5 === 0 && age > 10]] {
     .age {
       font-size: 24px;
-      fns: some(red, [[age]]);
+      fns: some(red, [[age]]), some(red, age);
     }
   }
   @else {
@@ -62,7 +66,7 @@
     :class="'age-' + age"
     :style="age / 3 > 10 ? 'color: red;' : undefined"
   >{{age}}</span>
-  <button onclick="grow(event)">grow</button>
+  <button @click="grow(event)">grow</button>
   <some-component
     name="xxx"
     :some-attr="age * 5 > 10 ? 'ok' : undefined"
