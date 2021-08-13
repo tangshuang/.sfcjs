@@ -1,26 +1,26 @@
 <script>
-  import SomeComponent from 'sfc:./some.htm';
-  import emit from 'sfc:emit';
+  import SomeComponent from 'sfc:./some.htm'
+  import emit from 'sfc:emit'
 
-  const props = await import('sfc:props');
+  const props = await import('sfc:props')
 
-  const name = 'static name';
-  let age = 10;
+  const name = 'static name'
+  let age = 10
 
   let some = {
     name: 'name',
-  };
+  }
 
   function grow(e) {
-    age ++;
-    emit('grow', age);
+    age ++
+    emit('grow', age)
   }
 
   const colors = [
     '#fee',
     '#ccd',
     '#a97',
-  ];
+  ]
 </script>
 
 <style>
@@ -65,7 +65,11 @@
     class="age"
     :class="'age-' + age"
     :style="age / 3 > 10 ? 'color: red;' : undefined"
+    (if)="age > 10"
   >{{age}}</span>
+  <span (repeat)="color,index of colors">
+    <i>{{index}}: {{color}}</i>
+  </span>
   <button @click="grow(event)">grow</button>
   <some-component
     name="xxx"

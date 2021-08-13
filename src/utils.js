@@ -23,8 +23,12 @@ export function padding(count) {
   return new Array(count).fill(' ').join('')
 }
 
-export function camelcase(str) {
-  return str.replace(/[-_]\w/ig, (matched, index) => {
+export function camelcase(str, force) {
+  if (force) {
+    const s = camelcase(str)
+    return s.replace(s[0], s[0].toUpperCase())
+  }
+  return str.replace(/[-_]\w/ig, (matched) => {
     return matched[1].toUpperCase()
   }).replace(/\s+/g, '')
 }

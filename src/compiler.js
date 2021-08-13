@@ -1,7 +1,7 @@
 // import { parse as parseJs } from '@babel/parser'
 import parseCssAst from './css-parser'
 import { parseHtmlToAst, traverseAst as traverseHtmlAst } from 'abs-html'
-import { clear, padding, each, camelcase } from './utils'
+import { clear, each, camelcase } from './utils'
 import { tokenizer as tokenizeJs } from './js-parser'
 import { prettyCode } from './code-prettier'
 
@@ -47,10 +47,12 @@ function parseJs(sourceCode) {
     return lines
   }, []).join('\n')
 
-  const tokens = tokenizeJs(scripts)
+  const scriptCode = prettyCode(scripts)
+  const tokens = tokenizeJs(scriptCode)
+
   const createReactive = (code) => {
     return code.replace(/let(.*?)=([\w\W]+?);$/, (_, name, value) => {
-      return `let ${name.trim()} = SFCJS.reactive(${value.trim()}, () => ${name.trim()});\n`
+      return `let ${name.trim()} = SFCJS.reactive(${value.trim()}, () => ${name.trim()});`
     })
   }
 
@@ -112,14 +114,18 @@ function parseJs(sourceCode) {
   return {
     imports,
     deps,
-    components,
+    components: components.reduce((obj, curr) => {
+      const [name, src] = curr
+      obj[name] = src
+      return obj
+    }, {}),
     code,
   }
 }
 
 function parseCss(sourceCode, source) {
   const ast = parseCssAst(sourceCode, { source })
-  let code = 'function(r) {\n'
+  let code = 'function(r) {'
 
   const { stylesheet = {} } = ast
   const { rules = [] } = stylesheet
@@ -134,6 +140,10 @@ function parseCss(sourceCode, source) {
     }
   })
 
+  const createName = (name) => {
+    const str = name.replace(/\[\[(.*?)\]\]/g, '${$1}')
+    return name === str ? `'${str}'` : '`' + str + '`'
+  }
   const createValue = (value) => {
     const wrapped = value.replace(/^\('\{\{(.*?)\}\}'\)$/, '[[$1]]').trim()
     const interpolated = wrapped.replace(/\[\[(.*?)\]\]/g, '${$1}')
@@ -157,8 +167,7 @@ function parseCss(sourceCode, source) {
         return
       }
 
-      const propStr = createValue(property)
-      const prop = camelcase(propStr)
+      const prop = camelcase(property)
       properties.push({
         name: prop,
         value: createValue(value),
@@ -166,25 +175,12 @@ function parseCss(sourceCode, source) {
     })
     return properties
   }
-
-  const fnsMapping = {}
-  each(fnsSections, ({ rules }) => {
-    each(rules, (rule) => {
-      const { selectors, declarations } = rule
-      const exp = selectors[0]
-      const [name, params] = exp.split(/(?=\()/)
-      const properties = createProps(declarations)
-      const fn = `const ${name} = ${params} => ({ ${properties.map(({ name, value }) => `${name}:${value}`).join(',')} })`
-      fnsMapping[name] = fn
-    })
-  })
-  const fns = Object.values(fnsMapping)
-
   const createRule = (section) => {
     const { selectors, declarations } = section
     const properties = createProps(declarations)
 
-    let rule = `r('${selectors.join(',')}',`
+    const name = createName(selectors.join(','))
+    let rule = `r(${name},`
 
     const props = []
     each(properties, (item) => {
@@ -209,6 +205,19 @@ function parseCss(sourceCode, source) {
 
     return rule
   }
+
+  const fnsMapping = {}
+  each(fnsSections, ({ rules }) => {
+    each(rules, (rule) => {
+      const { selectors, declarations } = rule
+      const exp = selectors[0]
+      const [name, params] = exp.split(/(?=\()/)
+      const properties = createProps(declarations)
+      const fn = `const ${name} = ${params} => ({ ${properties.map(({ name, value }) => `${name}:${value}`).join(',')} })`
+      fnsMapping[name] = fn
+    })
+  })
+  const fns = Object.values(fnsMapping)
 
   const css = []
   let inIf = ''
@@ -281,18 +290,18 @@ function parseCss(sourceCode, source) {
     }
   })
 
-  code += fns.join(';\n') + ';\n'
+  code += fns.join(';') + ';'
 
-  code += `return [\n${css.join(',\n')}\n];\n`
+  code += `return [${css.join(',')}];`
 
   code += '}'
   return code
 }
 
-function parseHtml(sourceCode) {
+function parseHtml(sourceCode, components) {
   const htmlAst = parseHtmlToAst(sourceCode.trim())
 
-  let code = 'function(h) {\nreturn '
+  let code = 'function(h) {return '
   traverseHtmlAst(htmlAst, {
     '*': {
       enter(node, parent) {
@@ -317,6 +326,8 @@ function parseHtml(sourceCode) {
     const attrs = []
     const props = []
     const events = []
+    const directives = []
+    const args = []
     each(obj, (value, key) => {
       const v = value && typeof value === 'object' ? create(value)
         : typeof vlaue === 'string' ? interpolate(value)
@@ -329,6 +340,26 @@ function parseHtml(sourceCode) {
       else if (key.indexOf('@') === 0) {
         const k = key.substr(1)
         events.push([k, `event => ${v}`])
+      }
+      else if (/^\(.*?\)$/.test(key)) {
+        const k = key.substring(1, key.length - 1)
+
+        if (k === 'if') {
+          directives.push(['visible', value])
+          args.push(null)
+        }
+        else if (k === 'repeat') {
+          const [left, items] = value.split(' of ').map(item => item.trim())
+          const [item, index] = left.split(',').map(item => item.trim())
+
+          directives.push(['repeat', `{items:${items},item:'${item}',index:'${index}'}`])
+          args.push(item, index)
+        }
+        else if (k === 'await') {
+          const [promise, data] = value.split(' then ')
+          directives.push(['await', `{await:${promise},data:'${data}'}`])
+          args.push(data)
+        }
       }
       else {
         attrs.push([key, `'${v}'`])
@@ -348,23 +379,27 @@ function parseHtml(sourceCode) {
       res += info.map(([key, value]) => `${key}: ${value}`).join(',')
       res += '}'
       return res
-    }).filter(item => !!item).join(',')
+    }).concat(directives.map((item) => {
+      const [name, value] = item
+      return `${name}: ${value}`
+    })).filter(item => !!item).join(',')
 
     if (!inner) {
       return ''
     }
 
-    return `{${inner}}`
+    return [`{${inner}}`, args]
   }
 
   const build = (astNode) => {
     const [type, props, ...children] = astNode
 
     let attrs = ''
+    let args = []
     let subs = []
 
     if (props) {
-      attrs = create(props)
+      [attrs, args] = create(props)
     }
 
     if (children.length && children.some(item => !!item)) {
@@ -380,14 +415,20 @@ function parseHtml(sourceCode) {
       })
     }
 
-    const inner = subs.join(',\n')
-    const params = [`'${type}'`, attrs, inner].filter(item => !!item)
-    const code = `h(${params.join(',\n')})`
+    const componentName = camelcase(type, true)
+    const component = components && components[componentName] ? componentName : `'${type}'`
+
+    const isNeedFn = !!args.length
+    const subArgs = args.filter(item => !!item).join(',')
+    const subArgsStr = subArgs ? `{${subArgs}}` : ''
+    const inner = subs.length ? (isNeedFn ? `(${subArgsStr}) =>` : '') + (subs.length > 1 ? `[${subs.join(',')}]` : subs[0]) : null
+    const params = [component, attrs, inner].filter(item => !!item)
+    const code = `h(${params.join(',')})`
     return code
   }
 
   code += build(htmlAst)
-  code += ';\n}'
+  code += ';}'
 
   return code
 }
@@ -407,26 +448,24 @@ export function parseComponent(text, source) {
     })
     .trim()
 
-  const htmlCode = parseHtml(html, source)
   const { imports, deps, code: jsCode, components } = jsSource
+  const htmlCode = parseHtml(html, components)
 
   return {
     imports,
     deps,
-    components,
     jsCode,
     cssCode,
     htmlCode,
   }
 }
 
-export function genComponent({ imports, deps, components, jsCode, cssCode, htmlCode }, source) {
+export function genComponent({ imports, deps, jsCode, cssCode, htmlCode }, source) {
   const output = [
     ...imports.map(([vars, src]) => `import ${vars} from "${src}";`),
     `SFCJS.define("${source}", [${deps.map(([, src]) => `"${src}"`).join(', ')}], function(${deps.map(([name]) => `${name}`).join(', ')}) {`,
     jsCode,
-    `  const components = {\n${components.map(([name]) => `    ${name}`).join(',\n')}\n  }`,
-    `  return {\n    components,\n    style: ${cssCode},\n    render: ${htmlCode}\n  }`,
+    `  return {style:${cssCode},render:${htmlCode}}`,
     '});',
   ].join('\n')
   return output

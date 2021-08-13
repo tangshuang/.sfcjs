@@ -1,4 +1,4 @@
-SFCJS.define('/app.htm', ['./some.htm', 'emit', 'props'], async function(SomeComponent, emit, props) {
+SFCJS.define(['./some.htm', 'emit', 'props', 'h', 'r'], async function(SomeComponent, emit, props, h, r) {
   const name = 'static name'
 
   let age = SFCJS.reactive(10, () => age)
@@ -14,66 +14,60 @@ SFCJS.define('/app.htm', ['./some.htm', 'emit', 'props'], async function(SomeCom
     '#a97',
   ]
 
-  const components = {
-    SomeComponent,
-  }
-
   return {
-    components,
-    style(r) {
-      const some = (color, age) => ({
-        color: color,
-        fontSize: age,
-      })
+    style: r`
+      .name {
+        color: #ffe;
+      }
+      .age {
+        color: ${colors[age % 3]};
+      }
 
-      return [
-        r('.age', { color: colors[age % 3] }),
-        age % 5 === 0 && age > 10
-          ? r('.age', { fontSize: 24 }, some('red', age))
-          : r('.age', { fontSize: 12 }),
-        colors.map((color, index) => r(`.age-${index + 10}`, { color })),
-      ]
-    },
-    render(h) {
-      return h(
-        'div',
-        {
-          class: 'app',
-        },
-        h('h3', props.title),
-        h(
-          'span',
-          `${name}:`,
-        ),
-        h(
-          'span',
-          {
-            class: ['age', 'age-' + age],
-            style: age / 3 > 10 ? 'color: red;' : undefined,
-          },
-          age,
-        ),
-        h(
-          'button',
-          {
-            events: {
-              click: event => grow(event),
-            },
-          },
-          'grow',
-        ),
-        h(
-          'some-component',
-          {
-            attrs: {
-              name: "xxx",
-            },
-            props: {
-              someAttr: age,
-            },
-          },
-        ),
-      )
-    },
+      @fns {
+        some: ${(color, age) => `
+          outline: none;
+          color: ${color};
+          font-size: ${age}px;
+        `}
+      }
+
+      @if ${age % 5 === 0 && age > 10} {
+        .age {
+          font-size: 24px;
+          fns: some(red, ${age}), some(red, age);
+        }
+      }
+      @else {
+        .age {
+          font-size: 12px;
+        }
+      }
+
+      @for ${colors.map((color, index) => r`
+        .age-${index + 10} {
+          color: ${color};
+        }
+      `)}
+    `,
+    render: h`
+      <div class="app">
+        <h3>${props.title}</h3>
+        <span>${name}:</span>
+        <span
+          class="age"
+          :class="${'age-' + age}"
+          :style="${age / 3 > 10 ? 'color: red;' : undefined}"
+          (if)="${age > 10}"
+        >${() => age}</span>
+        <span (repeat)="color,index of ${colors}">
+          ${({ color, index }) => h`<i>${index}: ${color}</i>`}
+        </span>
+        <button @click="${event => grow(event)}">grow</button>
+        <${SomeComponent}
+          name="xxx"
+          :some-attr="${age * 5 > 10 ? 'ok' : undefined}"
+        ></${SomeComponent}>
+      </div>
+    `,
   }
 })
