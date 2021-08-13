@@ -1705,7 +1705,7 @@ function parseJs(sourceCode) {
   const deps = []
   const imports = []
   const components = []
-  const scripts = sourceCode
+  const lines = sourceCode
     .replace(/import([\w\W]*?)from\s*?['"]sfc:(.+?)['"][;\n$]/gmi, (_, declares, src) => {
       if (src.indexOf('.') === 0 || src.indexOf('/') === 0) {
         components.push([declares.trim(), src])
@@ -1722,7 +1722,7 @@ function parseJs(sourceCode) {
       return ''
     })
 
-  const lines = scripts.split('\n').reduce((lines, current) => {
+  const scripts = lines.split('\n').reduce((lines, current) => {
     const last = lines[lines.length - 1]
     const isCurrentEmpty = !current.trim()
     if (!last && isCurrentEmpty) {
@@ -1741,56 +1741,46 @@ function parseJs(sourceCode) {
 
     lines.push(current)
     return lines
-  }, [])
+  }, []).join('\n')
 
-  let code = ''
-  let reactive = ''
-
-  const genReactive = () => {
-    code += reactive.replace(/let\s+?(\w+?)\s*?=([\W\w]+?)[;\n$]/gmi, (_, name, value) => {
-      return `let ${name} = SFCJS.reactive(${value.trim()}, () => ${name})`
+  const words = scripts.split(/ |(?=\()|(?={)|(?=\n)/)
+  const tokens = []
+  const reactive = []
+  const createReactive = () => {
+    const code = reactive.join(' ')
+    return code.replace(/let(.*?)=([\w\W]+?)$/, (_, name, value) => {
+      return `let ${name.trim()} = SFCJS.reactive(${value.trim()}, () => ${name});\n`
     })
-    code += '\n'
   }
+  for (let i = 0, len = words.length; i < len; i ++) {
+    const word = words[i]
+    if (word === 'let') {
+      reactive.push(word)
+      i ++
+      let next = words[i]
+      while (1) {
+        if (i >= len) {
+          break
+        }
 
-  for (let i = 0, len = lines.length; i < len; i ++) {
-    const line = lines[i]
-
-    if (/^let\s+?\w+?\s*?=.*?;/.test(line.trim())) {
-      code += line.replace(/let\s+?(\w+?)\s*?=(.*?);/, (_, name, value) => {
-        return `let ${name} = SFCJS.reactive(${value.trim()}, () => ${name});`
-      })
-      code += '\n'
-      continue
-    }
-
-    if (/^let\s+?\w+?\s*?=.*?$/.test(line.trim())) {
-      reactive += line + '\n'
-
-      for (++ i; i < len; i ++) {
-        const nextLine = lines[i]
-        const str = (0,_utils__WEBPACK_IMPORTED_MODULE_2__.clear)(nextLine)
-
-        if (['let ', 'const ', 'var ', 'function', '[', '(', ';', 'async '].some(item => str.indexOf(item) === 0)) {
-          genReactive()
+        if (['let', 'const', 'async', 'function', 'var', 'if', 'for', ';'].includes(next)) {
+          tokens.push(createReactive())
+          reactive.length = 0
           i --
           break
         }
 
-        reactive += nextLine + '\n'
-
-        if ([';', '}', ')'].includes(str[str.length - 1])) {
-          genReactive()
-          break
-        }
+        reactive.push(next)
+        i ++
+        next = words[i]
       }
-      console.log(reactive)
-
-      continue
     }
-
-    code += line + '\n'
+    else {
+      tokens.push(word)
+    }
   }
+
+  const code = tokens.join(' ')
 
   return {
     imports,
