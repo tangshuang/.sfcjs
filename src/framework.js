@@ -30,7 +30,7 @@ export function define(absUrl, deps, fn) {
 }
 
 async function loadDepComponents(deps) {
-  const components = deps.filter(item => item[0] === '/')
+  const components = deps.filter(item => /^[a-z]+?:\/\//.test(item))
   if (!components.length) {
     return
   }
@@ -51,7 +51,7 @@ class SFC_Element extends HTMLElement {
 
   async connectedCallback() {
     const src = this.getAttribute('src')
-    const baseUrl = window.location.pathname
+    const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
     const code = await getComponentCode(url)
     const script = createScriptByBlob(code)
@@ -65,14 +65,20 @@ class SFC_Element extends HTMLElement {
     const { absUrl } = this
     const mod = modules[absUrl]
     if (!mod) {
+      console.log(modules)
       throw new Error(`${absUrl} 组件尚未加载`)
     }
 
     const { deps, fn } = mod
     await loadDepComponents(deps)
     const vars = deps.map(dep => modules[dep])
-    console.log(vars, deps)
+    const context = await Promise.resolve(fn.apply(null, vars))
+    console.log(context)
   }
 }
 
 customElements.define('sfc-app', SFC_Element)
+
+export function reactive(compute) {}
+
+export function update(reactive, update) {}

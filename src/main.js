@@ -1,10 +1,12 @@
-import { resolveUrl, randomString } from './utils'
+import { resolveUrl, randomString, createBlobUrl } from './utils'
 
 const { currentScript } = document
 const { src } = currentScript
-const workerSrc = resolveUrl(src, './worker.js')
-
-const worker = new Worker(workerSrc)
+const { href } = window.location
+const baseUrl = resolveUrl(href, src)
+const workerSrc = currentScript.getAttribute('worker-src') || resolveUrl(baseUrl, './worker.js')
+const workerUrl = createBlobUrl(`importScripts('${workerSrc}')`)
+const worker = new Worker(workerUrl)
 
 export function getComponentCode(src) {
   return new Promise((resolve, reject) => {

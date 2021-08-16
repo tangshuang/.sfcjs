@@ -35,26 +35,22 @@ export function camelcase(str, force) {
 
 export function resolveUrl(baseUrl, uri) {
   if (!uri) {
-    throw new Error('resolveUrl 必须传入 uri')
-  }
-
-  if (uri.indexOf('/') === 0) {
-    return uri
+    throw new Error('resolveUrl 必须传入 baseUrl & uri')
   }
 
   if (/^[a-z]+:\/\//.test(uri)) {
     // 使用绝对路径
-    if (uri === window.location.origin) {
-      return '/'
-    }
-    if (uri.indexOf(window.location.origin + '/') === 0) {
-      return uri.replace(window.location.origin, '')
-    }
     return uri
   }
 
-  if (!baseUrl) {
-    return uri
+  if (!baseUrl || !/^[a-z]+:\/\//.test(baseUrl)) {
+    throw new Error('resolveUrl 中 baseUrl 必须是带协议的 url')
+  }
+
+  const origin = baseUrl.split('/').slice(0, 3).join('/')
+
+  if (uri.indexOf('/') === 0) {
+    return origin + uri
   }
 
   if (/^(\?|&|#)$/.test(uri[0])) {

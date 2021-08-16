@@ -18,7 +18,9 @@ return /******/ (() => { // webpackBootstrap
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "modules": () => (/* binding */ modules),
-/* harmony export */   "define": () => (/* binding */ define)
+/* harmony export */   "define": () => (/* binding */ define),
+/* harmony export */   "reactive": () => (/* binding */ reactive),
+/* harmony export */   "update": () => (/* binding */ update)
 /* harmony export */ });
 /* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
 /* harmony import */ var _main__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(22);
@@ -54,7 +56,7 @@ function define(absUrl, deps, fn) {
 }
 
 async function loadDepComponents(deps) {
-  const components = deps.filter(item => item[0] === '/')
+  const components = deps.filter(item => /^[a-z]+?:\/\//.test(item))
   if (!components.length) {
     return
   }
@@ -75,7 +77,7 @@ class SFC_Element extends HTMLElement {
 
   async connectedCallback() {
     const src = this.getAttribute('src')
-    const baseUrl = window.location.pathname
+    const baseUrl = window.location.href
     const url = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.resolveUrl)(baseUrl, src)
     const code = await (0,_main__WEBPACK_IMPORTED_MODULE_1__.getComponentCode)(url)
     const script = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.createScriptByBlob)(code)
@@ -89,17 +91,23 @@ class SFC_Element extends HTMLElement {
     const { absUrl } = this
     const mod = modules[absUrl]
     if (!mod) {
+      console.log(modules)
       throw new Error(`${absUrl} 组件尚未加载`)
     }
 
     const { deps, fn } = mod
     await loadDepComponents(deps)
     const vars = deps.map(dep => modules[dep])
-    console.log(vars, deps)
+    const context = await Promise.resolve(fn.apply(null, vars))
+    console.log(context)
   }
 }
 
 customElements.define('sfc-app', SFC_Element)
+
+function reactive(compute) {}
+
+function update(reactive, update) {}
 
 
 /***/ }),
@@ -116,9 +124,11 @@ __webpack_require__.r(__webpack_exports__);
 
 const { currentScript } = document
 const { src } = currentScript
-const workerSrc = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.resolveUrl)(src, './worker.js')
-
-const worker = new Worker(workerSrc)
+const { href } = window.location
+const baseUrl = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.resolveUrl)(href, src)
+const workerSrc = currentScript.getAttribute('worker-src') || (0,_utils__WEBPACK_IMPORTED_MODULE_0__.resolveUrl)(baseUrl, './worker.js')
+const workerUrl = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.createBlobUrl)(`importScripts('${workerSrc}')`)
+const worker = new Worker(workerUrl)
 
 function getComponentCode(src) {
   return new Promise((resolve, reject) => {
@@ -214,26 +224,22 @@ function camelcase(str, force) {
 
 function resolveUrl(baseUrl, uri) {
   if (!uri) {
-    throw new Error('resolveUrl 必须传入 uri')
-  }
-
-  if (uri.indexOf('/') === 0) {
-    return uri
+    throw new Error('resolveUrl 必须传入 baseUrl & uri')
   }
 
   if (/^[a-z]+:\/\//.test(uri)) {
     // 使用绝对路径
-    if (uri === window.location.origin) {
-      return '/'
-    }
-    if (uri.indexOf(window.location.origin + '/') === 0) {
-      return uri.replace(window.location.origin, '')
-    }
     return uri
   }
 
-  if (!baseUrl) {
-    return uri
+  if (!baseUrl || !/^[a-z]+:\/\//.test(baseUrl)) {
+    throw new Error('resolveUrl 中 baseUrl 必须是带协议的 url')
+  }
+
+  const origin = baseUrl.split('/').slice(0, 3).join('/')
+
+  if (uri.indexOf('/') === 0) {
+    return origin + uri
   }
 
   if (/^(\?|&|#)$/.test(uri[0])) {
@@ -368,7 +374,9 @@ var __webpack_exports__ = {};
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "define": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.define),
-/* harmony export */   "modules": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.modules)
+/* harmony export */   "modules": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.modules),
+/* harmony export */   "reactive": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.reactive),
+/* harmony export */   "update": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.update)
 /* harmony export */ });
 /* harmony import */ var _main__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(22);
 /* harmony import */ var _framework__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(1);
