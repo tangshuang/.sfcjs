@@ -32,3 +32,94 @@ export function camelcase(str, force) {
     return matched[1].toUpperCase()
   }).replace(/\s+/g, '')
 }
+
+export function resolveUrl(baseUrl, uri) {
+  if (!uri) {
+    throw new Error('resolveUrl 必须传入 uri')
+  }
+
+  if (uri.indexOf('/') === 0) {
+    return uri
+  }
+
+  if (/^[a-z]+:\/\//.test(uri)) {
+    // 使用绝对路径
+    if (uri === window.location.origin) {
+      return '/'
+    }
+    if (uri.indexOf(window.location.origin + '/') === 0) {
+      return uri.replace(window.location.origin, '')
+    }
+    return uri
+  }
+
+  if (!baseUrl) {
+    return uri
+  }
+
+  if (/^(\?|&|#)$/.test(uri[0])) {
+    return baseUrl + uri
+  }
+
+  let dir = ''
+  if (baseUrl[baseUrl.length - 1] === '/') {
+    dir = baseUrl.substring(0, baseUrl.length - 1)
+  }
+  else {
+    const chain = baseUrl.split('/')
+    const tail = chain.pop()
+    dir = tail.indexOf('.') === -1 ? baseUrl : chain.join('/')
+  }
+
+  const roots = dir.split('/')
+  const blocks = uri.split('/')
+  while (true) {
+    const block = blocks[0]
+    if (block === '..') {
+      blocks.shift()
+      roots.pop()
+    }
+    else if (block === '.') {
+      blocks.shift()
+    }
+    else {
+      break
+    }
+  }
+
+  const url = roots.join('/') + '/' + blocks.join('/')
+  return url
+}
+
+export function randomString(len = 8) {
+  const CHARS = '0123456789abcdefghigklmnopqrstuvwxyzABCDEFGHIGKLMNOPQRSTUVWXYZ'
+  let text = ''
+  for (let i = 0; i < len; i++) {
+    text += CHARS.charAt(Math.floor(Math.random() * CHARS.length))
+  }
+  return text
+}
+
+export function noop() {}
+
+export function createBlobUrl(contents) {
+  const _URL = window.URL || window.webkitURL
+  const blob = new Blob([ contents ], { type: 'application/javascript' })
+  const blobURL = _URL.createObjectURL(blob)
+  return blobURL
+}
+
+export function createScriptByBlob(contents) {
+  const src = createBlobUrl(contents)
+  const script = document.createElement('script')
+  script.type = 'module'
+  script.src = src
+  return script
+}
+
+export async function insertScript(script) {
+  return new Promise((r) => {
+    script.onload = r
+    document.body.appendChild(script)
+  })
+}

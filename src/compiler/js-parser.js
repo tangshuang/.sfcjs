@@ -96,7 +96,9 @@ export function parseJs(sourceCode) {
     return code.replace(/let(.*?)=([\w\W]+?);$/, (_, name, value) => {
       const varName = name.trim()
       vars[varName] = 1
-      return `let ${varName} = SFCJS.reactive(${value.trim()});`
+      const varValue = value.trim()
+      const varExp = varValue[0] === '{' ? `(${varValue})` : varValue
+      return `let ${varName} = SFCJS.reactive(() => ${varExp});`
     })
   }
   const consumeReactive = (name, code) => {

@@ -4,14 +4,14 @@ import { parseHtml } from './html-parser'
 import { clearComments } from '../utils'
 
 export function parseComponent(text, source, options = {}) {
-  let jsSource = null
-  let cssCode = null
+  let jsSource = {}
+  let cssCode = undefined
 
   const html = text
     .replace(/<script.*?>([\w\W]*?)<\/script>\n?/gmi, (_, sourceCode) => {
       sourceCode = clearComments(sourceCode)
       const jsSourceCode = options.prettyJs ? options.prettyJs(sourceCode) : sourceCode
-      jsSource = parseJs(jsSourceCode, source)
+      jsSource = parseJs(jsSourceCode)
       return ''
     })
     .replace(/<style>([\w\W]*?)<\/style>\n?/gmi, (_, sourceCode) => {
@@ -26,7 +26,7 @@ export function parseComponent(text, source, options = {}) {
   const { imports, deps, code: jsCode, components } = jsSource
 
   const htmlSource = options.prettyHtml ? options.prettyHtml(html) : html
-  const htmlCode = parseHtml(htmlSource, components)
+  const htmlCode = htmlSource ? parseHtml(htmlSource, components) : undefined
 
   return {
     imports,
@@ -37,12 +37,15 @@ export function parseComponent(text, source, options = {}) {
   }
 }
 
-export function genComponent({ imports, deps, jsCode, cssCode, htmlCode }, source, options = {}) {
+export function genComponent({ imports = [], deps = [], jsCode, cssCode, htmlCode }, source, options = {}) {
   const output = [
     ...imports.map(([vars, src]) => `import ${vars} from "${src}";`),
-    `SFCJS.define("${source}", [${deps.map(([, src]) => `"${src}"`).join(', ')}], function(${deps.map(([name]) => `${name}`).join(', ')}) {`,
+    `SFCJS.define("${source}", [${deps.map(([, src]) => `"${src}"`).join(', ')}], async function(${deps.map(([name]) => `${name}`).join(', ')}) {`,
     jsCode,
-    `  return {style:${cssCode},render:${htmlCode}}`,
+    'return {',
+    cssCode ? `style:${cssCode},` : '',
+    `render:${htmlCode || `() => null`}`,
+    '}',
     '});',
   ].join('\n')
   const res = options.prettyJs ? options.prettyJs(output) : output
@@ -50,11 +53,8 @@ export function genComponent({ imports, deps, jsCode, cssCode, htmlCode }, sourc
 }
 
 export function compileComponent(text, source, options) {
-  const start = performance.now()
   const asts = parseComponent(text, source, options)
   const code = genComponent(asts, source, options)
-  const end = performance.now()
-  console.log(code, 'cost time:', end - start)
   return code
 }
 
