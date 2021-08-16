@@ -15,7 +15,7 @@ export function each(obj, fn) {
   }
 }
 
-export function clear(str) {
+export function clearComments(str) {
   return str.replace(/\/\*.*?\*\//gmi, '').replace(/\/\/.*?[\n$]/, '')
 }
 

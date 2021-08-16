@@ -1,26 +1,26 @@
 <script>
-  import SomeComponent from 'sfc:./some.htm'
-  import emit from 'sfc:emit'
+  import SomeComponent from 'sfc:./some.htm';
+  import emit from 'sfc:emit';
 
-  const props = await import('sfc:props')
+  const props = await import('sfc:props');
 
-  const name = 'static name'
-  let age = 10
+  const name = 'static name';
+  let age = 10;
 
   let some = {
     name: 'name',
-  }
+  };
 
   function grow(e) {
-    age ++
-    emit('grow', age)
+    age = age + 1;
+    emit('grow', age);
   }
 
   const colors = [
     '#fee',
     '#ccd',
     '#a97',
-  ]
+  ];
 </script>
 
 <style>

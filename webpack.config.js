@@ -3,10 +3,10 @@ const { DefinePlugin } = require('webpack')
 module.exports = {
   mode: 'none',
   target: 'web',
-  entry: __dirname + '/src/compiler.js',
+  entry: __dirname + '/src/index.js',
   output: {
     path: __dirname + '/dist',
-    filename: 'compiler.js',
+    filename: 'index.js',
     library: 'SFCJS',
     libraryTarget: 'umd',
   },
