@@ -46,13 +46,21 @@
       fns: some(red, [[age]]), some(red, age);
     }
   }
+  @elseif [[age < 5]] {
+    .age {
+      font-size: 5px;
+    }
+    .height {
+      color: blue;
+    }
+  }
   @else {
     .age {
       font-size: 12px;
     }
   }
 
-  @for color,index of colors {
+  @for color,index of [[colors]] {
     .age-[[index + 10]] {
       color: [[color]];
     }

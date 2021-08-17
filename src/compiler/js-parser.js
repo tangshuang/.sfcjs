@@ -147,13 +147,14 @@ export function parseJs(sourceCode) {
       vars[varName] = 1
       const varValue = value.trim()
       const varExp = varValue[0] === '{' ? `(${varValue})` : varValue
-      return `let ${varName} = SFCJS.reactive(() => ${varExp});`
+      return `let ${varName} = SFCJS.reactive(() => ${varExp}, () => ${varName}, (value) => ${varName} = value);`
     })
   }
   const updateReactive = (name, code) => {
-    return code.replace(new RegExp(name + '\\s*?=([\\w\\W]+?);$'), (_, code) => {
-      return `${name} = SFCJS.update(${name}, () => ${code.trim()});`
-    })
+    return code
+    // return code.replace(new RegExp(name + '\\s*?=([\\w\\W]+?);$'), (_, code) => {
+    //   return `${name} = SFCJS.update(${name}, () => ${code.trim()});`
+    // })
   }
 
   let code = ''

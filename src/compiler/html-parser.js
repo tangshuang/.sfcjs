@@ -107,18 +107,18 @@ export function parseHtml(sourceCode, components, vars) {
       return ''
     }
 
-    return [`{${inner}}`, args]
+    return [`() => ({${inner}})`, args]
   }
 
   const build = (astNode) => {
     const [type, props, ...children] = astNode
 
-    let attrs = ''
+    let data = ''
     let args = []
     let subs = []
 
     if (props) {
-      [attrs, args] = create(props)
+      [data, args] = create(props)
     }
 
     if (children.length && children.some(item => !!item)) {
@@ -137,11 +137,10 @@ export function parseHtml(sourceCode, components, vars) {
     const componentName = camelcase(type, true)
     const component = components && components[componentName] ? componentName : `'${type}'`
 
-    const isNeedFn = !!args.length
     const subArgs = args.filter(item => !!item).join(',')
     const subArgsStr = subArgs ? `{${subArgs}}` : ''
-    const inner = subs.length ? (isNeedFn ? `(${subArgsStr}) =>` : '') + (subs.length > 1 ? `[${subs.join(',')}]` : subs[0]) : null
-    const params = [component, attrs, inner].filter(item => !!item)
+    const inner = subs.length ? `(${subArgsStr}) =>` + (subs.length > 1 ? `[${subs.join(',')}]` : subs[0]) : null
+    const params = [component, data, inner].filter(item => !!item)
     const code = `h(${params.join(',')})`
     return code
   }

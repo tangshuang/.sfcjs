@@ -1,6 +1,6 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, assign, remove, isObject, isArray } from 'ts-fns'
+import { createProxy, isObject, isArray, remove, assign } from 'ts-fns'
 import produce from 'immer'
 
 export const modules = {}
@@ -75,86 +75,46 @@ customElements.define('sfc-app', SFC_Element)
 let currentComponent = null
 const REACTIVE_SYMBOL = Symbol('reactive')
 
-function createReactive(obj, currentComponent) {
-  const react = createProxy(obj, {
-    get(keyPath, value) {
-      const [root] = keyPath
-      if (root === '$$typeof') {
-        return REACTIVE_SYMBOL
-      }
-      if (root === '$$component') {
-        return currentComponent
-      }
-      if (root === '$$type') {
-        return 'object'
-      }
-      return value
+export function reactive(init, getter, setter) {
+  const value = init()
+  const immut = createProxy(value, {
+    writable() {
+      return false
     },
-    dispatch() {
-      scheduleUpdateComponent(currentComponent, react)
+    receive(...args) {
+      if (args.length === 1) {
+        const [keyPath] = args
+        const next = produce(value, (value) => {
+          remove(value, keyPath)
+        })
+        const newReact = reactive(
+          () => next,
+          getter,
+          setter,
+        )
+        setter(newReact)
+      }
+      else {
+        const [keyPath, nextValue] = args
+        const next = produce(value, (value) => {
+          assign(value, keyPath, nextValue)
+        })
+        const newReact = reactive(
+          () => next,
+          getter,
+          setter,
+        )
+        setter(newReact)
+      }
     },
   })
-  return react
-}
-
-export function reactive(getter) {
-  currentComponent.collector = []
-  const defaultValue = getter()
-  const collector = currentComponent.collector
-  currentComponent.collector = []
-
-  if (!isObject(defaultValue) && !isArray(defaultValue)) {
-    const react = {
-      $$typeof: REACTIVE_SYMBOL,
-      $$component: currentComponent,
-      $$type: 'primitive',
-      value: defaultValue,
-      getter,
-      valueOf() {
-        return react.value
-      },
-      [Symbol.toPrimitive](hint) {
-        const value = react.value
-        if (hint !== 'default') {
-          return value
-        }
-        scheduleUpdateComponent(react.$$component, react)
-        return value
-      },
-    }
-    currentComponent.reactives.push(react)
-    return react
+  var react = {
+    $$typeof: REACTIVE_SYMBOL,
+    $$component: currentComponent,
+    value: immut,
+    getter,
+    setter,
   }
-
-  const react = createReactive(defaultValue, currentComponent)
-  currentComponent.reactives.push(react)
-  return react
-}
-
-export function update(react, updator) {
-  if (!react || typeof react !== 'object') {
-    return updator()
-  }
-
-  if (react.$$typeof !== REACTIVE_SYMBOL) {
-    return updator()
-  }
-
-  const { $$component } = react
-  // 先删除原来的
-  $$component.reactives.forEach((item, i) => {
-    if (item === react) {
-      $$component.reactives.splice(i, 1)
-    }
-  })
-
-  // 创建一份新的
-  const originComponent = currentComponent
-  currentComponent = $$component
-  const nextReact = reactive(updator)
-  currentComponent = originComponent
-  scheduleUpdateComponent($$component, nextReact)
-
   return react
 }
 
@@ -167,10 +127,12 @@ export function consume(react) {
     return react
   }
 
-  const { $$component, $$type } = react
-  $$component.collector.push(react)
-
-  return $$type === 'primitive' ? react.value : react
+  const { $$component, value } = react
+  $$component.collector.add(react)
+  scheduleUpdateComponent($$component).then(() => {
+    $$component.collector.clear()
+  })
+  return value
 }
 
 async function initComponent(absUrl, data = {}) {
@@ -198,9 +160,9 @@ async function initComponent(absUrl, data = {}) {
 
   currentComponent = {
     props,
-    reactives: [],
     context: null,
-    collector: [],
+    collector: new Set(),
+    inited: false,
   }
   const context = await Promise.resolve(fn(...vars))
   currentComponent.context = context
@@ -219,4 +181,33 @@ function updateComponent() {}
 
 function unmountComponent() {}
 
-function scheduleUpdateComponent(component, reactive, prev) {}
+function scheduleUpdateComponent(component) {
+  return Promise.resolve().then(() => {
+    const { collector, context, inited } = component
+
+    if (!inited) {
+      component.inited = true
+      return
+    }
+
+    if (!collector.size) {
+      return
+    }
+
+    const items = [...collector]
+    each(items, (item) => {
+      const { getter } = item
+      const newValue = getter()
+      if (item !== newValue) {
+        queueUpdateComponent(component, item)
+      }
+    })
+
+    const { onUpdate } = context
+    if (onUpdate) {
+      onUpdate()
+    }
+  })
+}
+
+function queueUpdateComponent(component, reactive) {}

@@ -715,7 +715,7 @@ function addParent(obj, parent) {
   return obj;
 }
 
-export function parseCss(sourceCode, source, vars) {
+export function parseCss(sourceCode, source, givenVars) {
   const ast = parseCssAst(sourceCode, { source })
   let code = 'function(r) {'
 
@@ -732,7 +732,7 @@ export function parseCss(sourceCode, source, vars) {
     }
   })
 
-  const consumeVars = (code) => {
+  const consumeVars = (code, vars = givenVars) => {
     const tokens = tokenize(code)
     each(tokens, (item, i) => {
       if (vars[item]) {
@@ -748,7 +748,7 @@ export function parseCss(sourceCode, source, vars) {
     })
     return name === str ? `'${str}'` : '`' + str + '`'
   }
-  const createValue = (value) => {
+  const createValue = (value, direct) => {
     const interpolated = value.replace(/^\('\{\{(.*?)\}\}'\)$/, (_, $1) => {
       return '${' + consumeVars($1) + '}'
     }).replace(/\[\[(.*?)\]\]/g, (_, $1) => {
@@ -756,9 +756,46 @@ export function parseCss(sourceCode, source, vars) {
     })
 
     const res = interpolated === value ? `'${value}'`
+      : /^\$\{.*?\}$/.test(interpolated) && (direct || interpolated.indexOf('SFCJS.consume') === -1) ? interpolated.substring(2, interpolated.length - 1)
+      : '`' + interpolated + '`'
+    return res
+  }
+
+
+  const createFnInvoker = (value) => {
+    const interpolated = value
+      .replace(/^\('\{\{(.*?)\}\}'\)$/, '${$1}')
+      .replace(/\[\[(.*?)\]\]/g, '${$1}')
+    const res = interpolated === value ? `'${value}'`
       : /^\$\{.*?\}$/.test(interpolated) ? interpolated.substring(2, interpolated.length - 1)
       : '`' + interpolated + '`'
     return res
+  }
+
+  const createFnValue = (value, params) => {
+    const items = params.substring(1, params.length - 1).split(',').map(item => item.trim())
+    const vars = {}
+    each(items, (key) => {
+      vars[key] = 1
+    })
+
+    const interpolated = value
+      .replace(/^\('\{\{(.*?)\}\}'\)$/, (_, $1) => {
+        return '${' + consumeVars($1, vars) + '}'
+      })
+      .replace(/\[\[(.*?)\]\]/g, (_, $1) => {
+        return '${' + consumeVars($1, vars) + '}'
+      })
+
+    if (interpolated === value) {
+      return value
+    }
+
+    if (/^\$\{.*?\}$/.test(interpolated)) {
+      return '() => ' + interpolated.substring(2, interpolated.length - 1)
+    }
+
+    return '() => `' + interpolated + '`'
   }
 
   const createProps = (declarations) => {
@@ -770,8 +807,8 @@ export function parseCss(sourceCode, source, vars) {
           const paramsT = paramsStr.trim()
           const params = paramsT.substring(1, paramsT.length - 1).split(',')
             .map(item => item.trim())
-            .map(item => createValue(item))
-          return `${name}(${params.join(',')})`
+            .map(item => createFnInvoker(item))
+          return `['@fn', () => ${name}(${params.join(',')})]`
         })
         properties.push({ fns })
         return
@@ -803,7 +840,7 @@ export function parseCss(sourceCode, source, vars) {
         rule += fns.join(',')
       }
       else {
-        props.push(`${name}: ${value}`)
+        props.push(`${name}: ${/\$\{.*?\}/.test(value) ? `() => ${value}` : value}`)
       }
     })
 
@@ -822,8 +859,14 @@ export function parseCss(sourceCode, source, vars) {
       const { selectors, declarations } = rule
       const exp = selectors[0]
       const [name, params] = exp.split(/(?=\()/)
-      const properties = createProps(declarations)
-      const fn = `const ${name} = ${params} => ({ ${properties.map(({ name, value }) => `${name}:${value}`).join(',')} })`
+      const properties = []
+      each(declarations, ({ property, value }) => {
+        const prop = camelcase(property)
+        const v = createFnValue(value, params)
+        const str = `${prop}: ${v}`
+        properties.push(str)
+      })
+      const fn = `const ${name} = ${params} => ({ ${properties.join(',')} })`
       fnsMapping[name] = fn
     })
   })
@@ -839,7 +882,7 @@ export function parseCss(sourceCode, source, vars) {
       }
 
       const { condition, rules } = section
-      inIf = createValue(condition) + '?'
+      inIf = `'@if', () => ${createValue(condition, true)},`
       const rule = rules.map(createRule).join(',')
       inIf += rules.length > 1 ? `[${rule}]`
         : rules.length === 1 ? rule
@@ -853,7 +896,7 @@ export function parseCss(sourceCode, source, vars) {
       }
 
       const { condition, rules } = section
-      inIf += `:${createValue(condition)}?`
+      inIf += `,() => ${createValue(condition, true)},`
       const rule = rules.map(createRule).join(',')
       inIf += rules.length > 1 ? `[${rule}]`
         : rules.length === 1 ? rule
@@ -868,12 +911,12 @@ export function parseCss(sourceCode, source, vars) {
 
       const { rules } = section
       const rule = rules.map(createRule).join(',')
-      inIf += ':'
+      inIf += ','
       inIf += rules.length > 1 ? `[${rule}]`
         : rules.length === 1 ? rule
         : 'null'
 
-      css.push(inIf)
+      css.push(`[${inIf}]`)
       inIf = ''
 
       return
@@ -881,14 +924,16 @@ export function parseCss(sourceCode, source, vars) {
 
     // 直接结束if
     if (inIf) {
-      inIf += ':null'
-      css.push(inIf)
+      inIf += "':',null"
+      css.push(`[${inIf}]`)
       inIf = ''
     }
 
     if (type === 'for') {
       const { items, item, index, rules } = section
-      const rule = `...${items}.map((${item},${index}) => [${rules.map(createRule).join(',')}])`
+      const repeatInside = rules.map(createRule).join(',')
+      const repeatItems = createValue(items, true)
+      const rule = `['@for', () => ${repeatItems}.map((${item},${index}) => ${rules.length > 1 ? `[${repeatInside}]` : repeatInside})]`
       css.push(rule)
       return
     }
