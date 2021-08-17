@@ -1,7 +1,7 @@
 import { parseCss } from './css-parser'
 import { parseJs } from './js-parser'
 import { parseHtml } from './html-parser'
-import { clearComments } from '../utils'
+import { clearComments, resolveUrl } from '../utils'
 
 export function parseComponent(text, source, options = {}) {
   let jsSource = {}
@@ -38,7 +38,8 @@ export function parseComponent(text, source, options = {}) {
 
 export function genComponent({ imports = [], deps = [], jsCode, cssCode, htmlCode }, source, options = {}) {
   const output = [
-    ...imports.map(([vars, src]) => `import ${vars} from "${src}";`),
+    ...imports.map(([vars, src]) => `import ${vars} from "${resolveUrl(source, src)}";`),
+    '\n',
     `SFCJS.define("${source}", [${deps.map(([, src]) => `"${src}"`).join(', ')}], async function(${deps.map(([name]) => `${name}`).join(', ')}) {`,
     jsCode,
     'return {',

@@ -1,4 +1,4 @@
-import { each, camelcase } from '../utils'
+import { each, camelcase, resolveUrl } from '../utils'
 import { tokenize } from './js-parser'
 
 // fork https://github.com/reworkcss/css/blob/master/lib/parse/index.js
@@ -758,9 +758,9 @@ export function parseCss(sourceCode, source, givenVars) {
     const res = interpolated === value ? `'${value}'`
       : /^\$\{.*?\}$/.test(interpolated) && (direct || interpolated.indexOf('SFCJS.consume') === -1) ? interpolated.substring(2, interpolated.length - 1)
       : '`' + interpolated + '`'
-    return res
+    const output = res.replace(/\n*/g, '').replace(/\s+/g, ' ')
+    return output
   }
-
 
   const createFnInvoker = (value) => {
     const interpolated = value
@@ -822,13 +822,20 @@ export function parseCss(sourceCode, source, givenVars) {
     })
     return properties
   }
-  const createRule = (section) => {
-    const { selectors, declarations } = section
-    const properties = createProps(declarations)
 
-    const name = createName(selectors.join(','))
+  const createDeclare = (declarations) => {
+    const properties = createProps(declarations)
+    const props = []
+    each(properties, (item) => {
+      const { name, value } = item
+      props.push(`${name}: ${/\$\{.*?\}/.test(value) ? `() => ${value}` : value}`)
+    })
+    return props
+  }
+  const createBy = (name, declarations) => {
     let rule = `r(${name},`
 
+    const properties = createProps(declarations)
     const props = []
     each(properties, (item) => {
       const { name, value, fns } = item
@@ -851,6 +858,16 @@ export function parseCss(sourceCode, source, givenVars) {
     rule += ')'
 
     return rule
+  }
+  const createRule = (section) => {
+    const { selectors, declarations } = section
+    const name = createName(selectors.join(','))
+    return createBy(name, declarations)
+  }
+  const createKeyframe = (keyframe) => {
+    const { values, declarations } = keyframe
+    const name = createName(values.join(','))
+    return createBy(name, declarations)
   }
 
   const fnsMapping = {}
@@ -941,6 +958,47 @@ export function parseCss(sourceCode, source, givenVars) {
     if (type === 'rule') {
       const rule = createRule(section)
       css.push(rule)
+      return
+    }
+
+    if (type === 'import') {
+      css.push(`['@import', '${resolveUrl(source, section.import)}']`)
+      return
+    }
+
+    if (type === 'media') {
+      css.push(`['@media', '${section.media}', ${section.rules.map(createRule).join(', ')}]`)
+      return
+    }
+
+    if (type === 'charset') {
+      css.push(`['@charset', '${section.charset}']`)
+      return
+    }
+
+    if (type === 'namespace') {
+      css.push(`['@namespace', '${section.namespace}']`)
+      return
+    }
+
+    if (type === 'supports') {
+      css.push(`['@supports', '${section.supports}', ${section.rules.map(createRule).join(', ')}]`)
+      return
+    }
+
+    if (type === 'keyframes') {
+      css.push(`['@keyframes', '${section.name}', ${section.keyframes.map(createKeyframe).join(', ')}]`)
+      return
+    }
+
+    if (type === 'font-face') {
+      const props = createDeclare(section.declarations).map(prop => prop
+        .replace(/\('(.*?)'\)/gm, '("$1")')
+        .replace(/url\("?(.*?)"?\)/gm, (_, $1) => {
+          return `url("${resolveUrl(source, $1)}")`
+        })
+      )
+      css.push(`['@font-face', {${props.join(',')}}]`)
       return
     }
   })

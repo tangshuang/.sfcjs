@@ -1,27 +1,28 @@
 <script>
-  import SomeComponent from 'sfc:./some.htm';
-  import emit from 'sfc:emit';
+  import SomeComponent from 'sfc:./some.htm'
+  import emit from 'sfc:emit'
+  import { each } from '../src/utils.js'
 
-  const props = await import('sfc:props');
+  const props = await import('sfc:props')
 
-  const name = 'static name';
-  let age = 10;
+  const name = 'static name'
+  let age = 10
 
   let some = {
     name: 'name',
     height: age * 50,
-  };
+  }
 
   function grow(e) {
-    age = age + 1;
-    emit('grow', age);
+    age = age + 1
+    emit('grow', age)
   }
 
   const colors = [
     '#fee',
     '#ccd',
     '#a97',
-  ];
+  ]
 </script>
 
 <style>
@@ -60,10 +61,31 @@
     }
   }
 
+  @media max-width {
+    .age {
+      font-size: 17px;
+    }
+  }
+
+  @keyframes somekey {
+    0% {
+      height: 100px;
+    }
+    100% {
+      height: 0;
+    }
+  }
+
   @for color,index of [[colors]] {
     .age-[[index + 10]] {
       color: [[color]];
     }
+  }
+
+  @font-face {
+    font-family: "Open Sans";
+    src: url("./fonts/OpenSans-Regular-webfont.woff2") format("woff2"),
+      url("./fonts/OpenSans-Regular-webfont.woff") format('woff');
   }
 </style>
 
