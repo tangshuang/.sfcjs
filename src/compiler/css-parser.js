@@ -1,4 +1,5 @@
 import { each, camelcase } from '../utils'
+import { tokenize } from './js-parser'
 
 // fork https://github.com/reworkcss/css/blob/master/lib/parse/index.js
 
@@ -714,7 +715,7 @@ function addParent(obj, parent) {
   return obj;
 }
 
-export function parseCss(sourceCode, source) {
+export function parseCss(sourceCode, source, vars) {
   const ast = parseCssAst(sourceCode, { source })
   let code = 'function(r) {'
 
@@ -731,17 +732,35 @@ export function parseCss(sourceCode, source) {
     }
   })
 
+  const consumeVars = (code) => {
+    const tokens = tokenize(code)
+    each(tokens, (item, i) => {
+      if (vars[item]) {
+        tokens[i] = `SFCJS.consume(${item})`
+      }
+    })
+    const res = tokens.join('')
+    return res
+  }
   const createName = (name) => {
-    const str = name.replace(/\[\[(.*?)\]\]/g, '${$1}')
+    const str = name.replace(/\[\[(.*?)\]\]/g, (_, $1) => {
+      return '${' + consumeVars($1) + '}'
+    })
     return name === str ? `'${str}'` : '`' + str + '`'
   }
   const createValue = (value) => {
-    const wrapped = value.replace(/^\('\{\{(.*?)\}\}'\)$/, '[[$1]]').trim()
-    const interpolated = wrapped.replace(/\[\[(.*?)\]\]/g, '${$1}')
-    const real = interpolated === wrapped ? `'${wrapped}'`
-      : /^\$\{.*?\}$/.test(interpolated) ? wrapped.substring(2, wrapped.length - 2) : '`' + interpolated + '`'
-    return real
+    const interpolated = value.replace(/^\('\{\{(.*?)\}\}'\)$/, (_, $1) => {
+      return '${' + consumeVars($1) + '}'
+    }).replace(/\[\[(.*?)\]\]/g, (_, $1) => {
+      return '${' + consumeVars($1) + '}'
+    })
+
+    const res = interpolated === value ? `'${value}'`
+      : /^\$\{.*?\}$/.test(interpolated) ? interpolated.substring(2, interpolated.length - 1)
+      : '`' + interpolated + '`'
+    return res
   }
+
   const createProps = (declarations) => {
     const properties = []
     each(declarations, ({ property, value }) => {

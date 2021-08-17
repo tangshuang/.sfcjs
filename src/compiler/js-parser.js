@@ -1,9 +1,11 @@
-function tokenizeJs(code) {
+export function tokenize(code) {
   const tokens = []
 
   let cursor = 0
   let token = ''
   let str = ''
+
+  const quotes = []
 
   for (let len = code.length; cursor < len; cursor ++) {
     const char = code[cursor]
@@ -18,6 +20,53 @@ function tokenizeJs(code) {
         str = ''
       }
       tokens.push(char)
+    }
+    else if (['"', "'", '`'].includes(char)) {
+      const latest = quotes[quotes.length - 1]
+      if (latest && latest === char) {
+        quotes.pop()
+        token += char
+        if (!quotes.length) {
+          tokens.push(token)
+          token = ''
+        }
+      }
+      else {
+        quotes.push(char)
+        if (str) {
+          tokens.push(str)
+          str = ''
+        }
+        token += char
+      }
+    }
+    else if (quotes.length) {
+      if (str) {
+        tokens.push(str)
+        str = ''
+      }
+      token += char
+    }
+    else if (token && char === ' ') {
+      let following = ' '
+      let i = cursor + 1
+      let next = code[i]
+      while (next === ' ') {
+        following += ' '
+        next = code[++ i]
+      }
+
+      if (next === ':') {
+        token += following + ':'
+        cursor = i
+        tokens.push(token)
+        token = ''
+      }
+      else {
+        tokens.push(token)
+        token = ''
+        str = ' '
+      }
     }
     else if (/\w/.test(char)) {
       if (str) {
@@ -89,7 +138,7 @@ export function parseJs(sourceCode) {
     return lines
   }, []).join('\n')
 
-  const tokens = tokenizeJs(scripts)
+  const tokens = tokenize(scripts)
 
   const vars = {}
   const createReactive = (code) => {
@@ -101,7 +150,7 @@ export function parseJs(sourceCode) {
       return `let ${varName} = SFCJS.reactive(() => ${varExp});`
     })
   }
-  const consumeReactive = (name, code) => {
+  const updateReactive = (name, code) => {
     return code.replace(new RegExp(name + '\\s*?=([\\w\\W]+?);$'), (_, code) => {
       return `${name} = SFCJS.update(${name}, () => ${code.trim()});`
     })
@@ -119,6 +168,9 @@ export function parseJs(sourceCode) {
 
       i ++
       let next = tokens[i]
+      if (vars[next]) {
+        next = `SFCJS.consume(${next})`
+      }
       reactive += next
 
       while (1) {
@@ -154,6 +206,9 @@ export function parseJs(sourceCode) {
 
         i ++
         next = tokens[i]
+        if (vars[next]) {
+          next = `SFCJS.consume(${next})`
+        }
         reactive += next
       }
     }
@@ -170,18 +225,18 @@ export function parseJs(sourceCode) {
 
       while (1) {
         if (i >= len) {
-          code += consumeReactive(varName, reactive)
+          code += updateReactive(varName, reactive)
           break
         }
 
         // 结束标记
         if (!localScope.length && next === ';') {
-          code += consumeReactive(varName, reactive)
+          code += updateReactive(varName, reactive)
           break
         }
         // TODO 需要支持不使用分号结尾的脚本
         if (!localScope.length && next === '\n') {
-          code += consumeReactive(varName, reactive)
+          code += updateReactive(varName, reactive)
           break
         }
 
@@ -201,8 +256,17 @@ export function parseJs(sourceCode) {
 
         i ++
         next = tokens[i]
-        reactive += next
+        if (vars[next]) {
+          reactive += `SFCJS.consume(${next})`
+        }
+        else {
+          reactive += next
+        }
       }
+    }
+    else if (vars[token]) {
+      const next = `SFCJS.consume(${token})`
+      code += next
     }
     else {
       code += token
@@ -217,6 +281,7 @@ export function parseJs(sourceCode) {
       obj[name] = src
       return obj
     }, {}),
+    vars,
     code,
   }
 }

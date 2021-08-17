@@ -1,8 +1,19 @@
 import { parseHtmlToAst, traverseAst as traverseHtmlAst } from 'abs-html'
 import { each, camelcase } from '../utils'
+import { tokenize } from './js-parser'
 
-export function parseHtml(sourceCode, components) {
+export function parseHtml(sourceCode, components, vars) {
   const htmlAst = parseHtmlToAst(sourceCode.trim())
+  const consumeVars = (code) => {
+    const tokens = tokenize(code)
+    each(tokens, (item, i) => {
+      if (vars[item]) {
+        tokens[i] = `SFCJS.consume(${item})`
+      }
+    })
+    const res = tokens.join('')
+    return res
+  }
 
   let code = 'function(h) {return '
   traverseHtmlAst(htmlAst, {
@@ -18,9 +29,11 @@ export function parseHtml(sourceCode, components) {
   })
 
   const interpolate = (str) => {
-    const res = str.replace(/{{(.*?)}}/g, '${$1}')
+    const res = str.replace(/{{(.*?)}}/g, (_, $1) => {
+      return '${' + consumeVars($1) + '}'
+    })
     if (str === res) {
-      return "'" + str + "'"
+      return str
     }
     return '`' + res + '`'
   }
@@ -32,39 +45,42 @@ export function parseHtml(sourceCode, components) {
     const directives = []
     const args = []
     each(obj, (value, key) => {
-      const v = value && typeof value === 'object' ? create(value)
-        : typeof vlaue === 'string' ? interpolate(value)
+      const createValue = () => value && typeof value === 'object' ? create(value)
+        : typeof value === 'string' ? interpolate(value)
         : value
+
       if (key.indexOf(':') === 0) {
+        const res = consumeVars(value)
         const realKey = key.substr(1)
         const k = camelcase(realKey)
-        props.push([k, v])
+        props.push([k, res])
       }
       else if (key.indexOf('@') === 0) {
         const k = key.substr(1)
+        const v = createValue()
         events.push([k, `event => ${v}`])
       }
       else if (/^\(.*?\)$/.test(key)) {
         const k = key.substring(1, key.length - 1)
-
         if (k === 'if') {
-          directives.push(['visible', value])
+          directives.push(['visible', consumeVars(value)])
           args.push(null)
         }
         else if (k === 'repeat') {
           const [left, items] = value.split(' of ').map(item => item.trim())
           const [item, index] = left.split(',').map(item => item.trim())
 
-          directives.push(['repeat', `{items:${items},item:'${item}',index:'${index}'}`])
+          directives.push(['repeat', `{items:${consumeVars(items)},item:'${item}',index:'${index}'}`])
           args.push(item, index)
         }
         else if (k === 'await') {
           const [promise, data] = value.split(' then ')
-          directives.push(['await', `{await:${promise},data:'${data}'}`])
+          directives.push(['await', `{await:${consumeVars(promise)},data:'${data}'}`])
           args.push(data)
         }
       }
       else {
+        const v = createValue()
         attrs.push([key, `'${v}'`])
       }
     })

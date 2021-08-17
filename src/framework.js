@@ -1,6 +1,6 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, assign, remove } from 'ts-fns'
+import { createProxy, assign, remove, isObject, isArray } from 'ts-fns'
 import produce from 'immer'
 
 export const modules = {}
@@ -56,6 +56,7 @@ class SFC_Element extends HTMLElement {
     const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
     const code = await getComponentCode(url)
+    console.log(code)
     const script = createScriptByBlob(code)
     script.setAttribute('sfc-src', url)
     this.absUrl = url
@@ -74,78 +75,105 @@ customElements.define('sfc-app', SFC_Element)
 let currentComponent = null
 const REACTIVE_SYMBOL = Symbol('reactive')
 
-function createReactiveValue(reactive, reactiveValue) {
-  const value = createProxy(reactiveValue, {
-    receive(...args) {
-      if (args.length === 2) {
-        const [keyPath, value] = args
-        const prev = reactive.value
-        const next = produce(prev, obj => {
-          assign(obj, keyPath, value)
-        })
-        reactive.value = createReactiveValue(reactive, next)
-        scheduleUpdateComponent(reactive.component, reactive, prev)
+function createReactive(obj, currentComponent) {
+  const react = createProxy(obj, {
+    get(keyPath, value) {
+      const [root] = keyPath
+      if (root === '$$typeof') {
+        return REACTIVE_SYMBOL
       }
-      else {
-        const [keyPath] = args
-        const prev = reactive.value
-        const next = produce(prev, obj => {
-          remove(obj, keyPath)
-        })
-        reactive.value = createReactiveValue(reactive, next)
-        scheduleUpdateComponent(reactive.component, reactive, prev)
+      if (root === '$$component') {
+        return currentComponent
       }
+      if (root === '$$type') {
+        return 'object'
+      }
+      return value
     },
-    writable() {
-      return false
+    dispatch() {
+      scheduleUpdateComponent(currentComponent, react)
     },
   })
-  return value
+  return react
 }
+
 export function reactive(getter) {
-  const react = {
-    $$typeof: REACTIVE_SYMBOL,
-    component: currentComponent,
-    value: null,
-    getter,
-    valueOf() {
-      return react.value
-    },
-    [Symbol.toPrimitive](hint) {
-      const prev = react.value
-      if (hint !== 'default') {
-        return prev
-      }
-      scheduleUpdateComponent(react.component, react, prev)
-      return prev
-    },
+  currentComponent.collector = []
+  const defaultValue = getter()
+  const collector = currentComponent.collector
+  currentComponent.collector = []
+
+  if (!isObject(defaultValue) && !isArray(defaultValue)) {
+    const react = {
+      $$typeof: REACTIVE_SYMBOL,
+      $$component: currentComponent,
+      $$type: 'primitive',
+      value: defaultValue,
+      getter,
+      valueOf() {
+        return react.value
+      },
+      [Symbol.toPrimitive](hint) {
+        const value = react.value
+        if (hint !== 'default') {
+          return value
+        }
+        scheduleUpdateComponent(react.$$component, react)
+        return value
+      },
+    }
+    currentComponent.reactives.push(react)
+    return react
   }
 
-  const defaultValue = getter()
-  const value = createReactiveValue(react, defaultValue)
-  react.value = value
-
+  const react = createReactive(defaultValue, currentComponent)
   currentComponent.reactives.push(react)
   return react
 }
 
-export function update(reactive, update) {
-  if (!reactive || typeof reactive !== 'object') {
-    return update()
+export function update(react, updator) {
+  if (!react || typeof react !== 'object') {
+    return updator()
   }
 
-  if (reactive.$$typeof !== REACTIVE_SYMBOL) {
-    return update()
+  if (react.$$typeof !== REACTIVE_SYMBOL) {
+    return updator()
   }
 
-  const next = update()
-  const prev = reactive.value
-  reactive.value = createReactiveValue(reactive, next)
-  scheduleUpdateComponent(reactive.component, reactive, prev)
-  return reactive
+  const { $$component } = react
+  // 先删除原来的
+  $$component.reactives.forEach((item, i) => {
+    if (item === react) {
+      $$component.reactives.splice(i, 1)
+    }
+  })
+
+  // 创建一份新的
+  const originComponent = currentComponent
+  currentComponent = $$component
+  const nextReact = reactive(updator)
+  currentComponent = originComponent
+  scheduleUpdateComponent($$component, nextReact)
+
+  return react
 }
 
-function initComponent(absUrl, data) {
+export function consume(react) {
+  if (!react || typeof react !== 'object') {
+    return react
+  }
+
+  if (react.$$typeof !== REACTIVE_SYMBOL) {
+    return react
+  }
+
+  const { $$component, $$type } = react
+  $$component.collector.push(react)
+
+  return $$type === 'primitive' ? react.value : react
+}
+
+async function initComponent(absUrl, data = {}) {
   const mod = modules[absUrl]
   if (!mod) {
     throw new Error(`${absUrl} 组件尚未加载`)
@@ -171,6 +199,8 @@ function initComponent(absUrl, data) {
   currentComponent = {
     props,
     reactives: [],
+    context: null,
+    collector: [],
   }
   const context = await Promise.resolve(fn(...vars))
   currentComponent.context = context

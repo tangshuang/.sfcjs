@@ -5,7 +5,7 @@ import { clearComments } from '../utils'
 
 export function parseComponent(text, source, options = {}) {
   let jsSource = {}
-  let cssCode = undefined
+  let cssText = ''
 
   const html = text
     .replace(/<script.*?>([\w\W]*?)<\/script>\n?/gmi, (_, sourceCode) => {
@@ -16,17 +16,16 @@ export function parseComponent(text, source, options = {}) {
     })
     .replace(/<style>([\w\W]*?)<\/style>\n?/gmi, (_, sourceCode) => {
       sourceCode = clearComments(sourceCode)
-      const cssSourceCode = options.prettyCss ? options.prettyCss(sourceCode) : sourceCode
-      cssCode = parseCss(cssSourceCode, source)
-      cssCode = options.prettyCss ? options.prettyCss(cssCode) : cssCode
+      cssText = options.prettyCss ? options.prettyCss(sourceCode) : sourceCode
       return ''
     })
     .trim()
 
-  const { imports, deps, code: jsCode, components } = jsSource
+  const { imports, deps, code: jsCode, components, vars } = jsSource
 
+  const cssCode = cssText ? parseCss(cssText, source, vars) : undefined
   const htmlSource = options.prettyHtml ? options.prettyHtml(html) : html
-  const htmlCode = htmlSource ? parseHtml(htmlSource, components) : undefined
+  const htmlCode = htmlSource ? parseHtml(htmlSource, components, vars) : undefined
 
   return {
     imports,
