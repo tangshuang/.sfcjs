@@ -9,112 +9,19 @@
 		root["SFCJS"] = factory();
 })(self, function() {
 return /******/ (() => { // webpackBootstrap
-/******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
 /***/ 1:
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+/***/ (() => {
 
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "modules": () => (/* binding */ modules),
-/* harmony export */   "define": () => (/* binding */ define),
-/* harmony export */   "reactive": () => (/* binding */ reactive),
-/* harmony export */   "update": () => (/* binding */ update)
-/* harmony export */ });
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
-/* harmony import */ var _main__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(22);
-
-
-
-const modules = {}
-
-function define(absUrl, deps, fn) {
-  if (modules[absUrl]) {
-    return
-  }
-
-  const mod = modules[absUrl] = {
-    url: absUrl,
-    deps,
-    fn,
-  }
-
-  const depComponents = deps.filter(item => item[0] === '.')
-  if (!depComponents.length) {
-    return
-  }
-  (0,_utils__WEBPACK_IMPORTED_MODULE_0__.each)(depComponents, (dep) => {
-    const url = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.resolveUrl)(absUrl, dep)
-    // 必须转化为绝对路径才能从modules上读取
-    mod.deps.forEach((item, i) => {
-      if (item === dep) {
-        mod.deps[i] = url
-      }
-    })
-  })
-}
-
-async function loadDepComponents(deps) {
-  const components = deps.filter(item => /^[a-z]+?:\/\//.test(item))
-  if (!components.length) {
-    return
-  }
-  await Promise.all(components.map((url) => {
-    return (0,_main__WEBPACK_IMPORTED_MODULE_1__.getComponentCode)(url).then((code) => {
-      const script = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.createScriptByBlob)(code)
-      script.setAttribute('sfc-src', url)
-      return (0,_utils__WEBPACK_IMPORTED_MODULE_0__.insertScript)(script)
-    })
-  }))
-}
-
-class SFC_Element extends HTMLElement {
-  constructor() {
-    super()
-    this.attachShadow({ mode: 'open' })
-  }
-
-  async connectedCallback() {
-    const src = this.getAttribute('src')
-    const baseUrl = window.location.href
-    const url = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.resolveUrl)(baseUrl, src)
-    const code = await (0,_main__WEBPACK_IMPORTED_MODULE_1__.getComponentCode)(url)
-    const script = (0,_utils__WEBPACK_IMPORTED_MODULE_0__.createScriptByBlob)(code)
-    script.setAttribute('sfc-src', url)
-    this.absUrl = url
-    await (0,_utils__WEBPACK_IMPORTED_MODULE_0__.insertScript)(script)
-    this.setup()
-  }
-
-  async setup() {
-    const { absUrl } = this
-    const mod = modules[absUrl]
-    if (!mod) {
-      console.log(modules)
-      throw new Error(`${absUrl} 组件尚未加载`)
-    }
-
-    const { deps, fn } = mod
-    await loadDepComponents(deps)
-    const vars = deps.map(dep => modules[dep])
-    const context = await Promise.resolve(fn.apply(null, vars))
-    console.log(context)
-  }
-}
-
-customElements.define('sfc-app', SFC_Element)
-
-function reactive(compute) {}
-
-function update(reactive, update) {}
-
+throw new Error("Module parse failed: Cannot use keyword 'await' outside an async function (156:2)\nYou may need an appropriate loader to handle this file type, currently no loaders are configured to process this file. See https://webpack.js.org/concepts#loaders\n|   const { deps, fn } = mod\n|   const { props, events } = data\n>   await loadDepComponents(deps)\n|   const scope = {\n|     ...modules,");
 
 /***/ }),
 
 /***/ 22:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
+"use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "getComponentCode": () => (/* binding */ getComponentCode)
@@ -174,6 +81,7 @@ function getComponentCode(src) {
 /***/ 3:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
+"use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "each": () => (/* binding */ each),
@@ -339,6 +247,18 @@ async function insertScript(script) {
 /******/ 	}
 /******/ 	
 /************************************************************************/
+/******/ 	/* webpack/runtime/compat get default export */
+/******/ 	(() => {
+/******/ 		// getDefaultExport function for compatibility with non-harmony modules
+/******/ 		__webpack_require__.n = (module) => {
+/******/ 			var getter = module && module.__esModule ?
+/******/ 				() => (module['default']) :
+/******/ 				() => (module);
+/******/ 			__webpack_require__.d(getter, { a: getter });
+/******/ 			return getter;
+/******/ 		};
+/******/ 	})();
+/******/ 	
 /******/ 	/* webpack/runtime/define property getters */
 /******/ 	(() => {
 /******/ 		// define getter functions for harmony exports
@@ -369,17 +289,16 @@ async function insertScript(script) {
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
-// This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
+// This entry need to be wrapped in an IIFE because it need to be in strict mode.
 (() => {
+"use strict";
 __webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "define": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.define),
-/* harmony export */   "modules": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.modules),
-/* harmony export */   "reactive": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.reactive),
-/* harmony export */   "update": () => (/* reexport safe */ _framework__WEBPACK_IMPORTED_MODULE_1__.update)
-/* harmony export */ });
 /* harmony import */ var _main__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(22);
 /* harmony import */ var _framework__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(1);
+/* harmony import */ var _framework__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_framework__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony reexport (unknown) */ var __WEBPACK_REEXPORT_OBJECT__ = {};
+/* harmony reexport (unknown) */ for(const __WEBPACK_IMPORT_KEY__ in _framework__WEBPACK_IMPORTED_MODULE_1__) if(__WEBPACK_IMPORT_KEY__ !== "default") __WEBPACK_REEXPORT_OBJECT__[__WEBPACK_IMPORT_KEY__] = () => _framework__WEBPACK_IMPORTED_MODULE_1__[__WEBPACK_IMPORT_KEY__]
+/* harmony reexport (unknown) */ __webpack_require__.d(__webpack_exports__, __WEBPACK_REEXPORT_OBJECT__);
 
 
 

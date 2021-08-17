@@ -1,5 +1,7 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
+import { createProxy, assign, remove } from 'ts-fns'
+import produce from 'immer'
 
 export const modules = {}
 
@@ -63,22 +65,128 @@ class SFC_Element extends HTMLElement {
 
   async setup() {
     const { absUrl } = this
-    const mod = modules[absUrl]
-    if (!mod) {
-      console.log(modules)
-      throw new Error(`${absUrl} 组件尚未加载`)
-    }
-
-    const { deps, fn } = mod
-    await loadDepComponents(deps)
-    const vars = deps.map(dep => modules[dep])
-    const context = await Promise.resolve(fn.apply(null, vars))
-    console.log(context)
+    initComponent(absUrl)
   }
 }
 
 customElements.define('sfc-app', SFC_Element)
 
-export function reactive(compute) {}
+let currentComponent = null
+const REACTIVE_SYMBOL = Symbol('reactive')
 
-export function update(reactive, update) {}
+function createReactiveValue(reactive, reactiveValue) {
+  const value = createProxy(reactiveValue, {
+    receive(...args) {
+      if (args.length === 2) {
+        const [keyPath, value] = args
+        const prev = reactive.value
+        const next = produce(prev, obj => {
+          assign(obj, keyPath, value)
+        })
+        reactive.value = createReactiveValue(reactive, next)
+        scheduleUpdateComponent(reactive.component, reactive, prev)
+      }
+      else {
+        const [keyPath] = args
+        const prev = reactive.value
+        const next = produce(prev, obj => {
+          remove(obj, keyPath)
+        })
+        reactive.value = createReactiveValue(reactive, next)
+        scheduleUpdateComponent(reactive.component, reactive, prev)
+      }
+    },
+    writable() {
+      return false
+    },
+  })
+  return value
+}
+export function reactive(getter) {
+  const react = {
+    $$typeof: REACTIVE_SYMBOL,
+    component: currentComponent,
+    value: null,
+    getter,
+    valueOf() {
+      return react.value
+    },
+    [Symbol.toPrimitive](hint) {
+      const prev = react.value
+      if (hint !== 'default') {
+        return prev
+      }
+      scheduleUpdateComponent(react.component, react, prev)
+      return prev
+    },
+  }
+
+  const defaultValue = getter()
+  const value = createReactiveValue(react, defaultValue)
+  react.value = value
+
+  currentComponent.reactives.push(react)
+  return react
+}
+
+export function update(reactive, update) {
+  if (!reactive || typeof reactive !== 'object') {
+    return update()
+  }
+
+  if (reactive.$$typeof !== REACTIVE_SYMBOL) {
+    return update()
+  }
+
+  const next = update()
+  const prev = reactive.value
+  reactive.value = createReactiveValue(reactive, next)
+  scheduleUpdateComponent(reactive.component, reactive, prev)
+  return reactive
+}
+
+function initComponent(absUrl, data) {
+  const mod = modules[absUrl]
+  if (!mod) {
+    throw new Error(`${absUrl} 组件尚未加载`)
+  }
+
+  const { deps, fn } = mod
+  const { props, events } = data
+  await loadDepComponents(deps)
+  const scope = {
+    ...modules,
+    props,
+    emit: (event, ...args) => {
+      const callback = events[event]
+      if (!callback) {
+        return
+      }
+
+      return callback(...args)
+    },
+  }
+  const vars = deps.map(dep => scope[dep])
+
+  currentComponent = {
+    props,
+    reactives: [],
+  }
+  const context = await Promise.resolve(fn(...vars))
+  currentComponent.context = context
+  const { onInit } = context
+
+  if (onInit) {
+    onInit()
+  }
+
+  return context
+}
+
+function mountComponent() {}
+
+function updateComponent() {}
+
+function unmountComponent() {}
+
+function scheduleUpdateComponent(component, reactive, prev) {}
