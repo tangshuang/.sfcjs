@@ -35,7 +35,7 @@ export function parseHtml(sourceCode, components, givenVars) {
       return '${' + consumeVars($1) + '}'
     })
     if (str === res) {
-      return str
+      return `'${str}'`
     }
     return '`' + res + '`'
   }
@@ -92,7 +92,7 @@ export function parseHtml(sourceCode, components, givenVars) {
       }
       else {
         const v = createValue()
-        attrs.push([key, `'${v}'`])
+        attrs.push([key, v])
       }
     })
 
@@ -139,8 +139,8 @@ export function parseHtml(sourceCode, components, givenVars) {
     if (children.length && children.some(item => !!item)) {
       each(children, (child) => {
         if (typeof child === 'string') {
-          const node = interpolate(child)
-          subs.push(`'${node}'`)
+          const text = interpolate(child)
+          subs.push(text)
         }
         else {
           const node = build(child)

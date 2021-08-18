@@ -47,6 +47,11 @@ export function tokenize(code) {
       }
       token += char
     }
+    else if (token && char === ':') {
+      token += ':'
+      tokens.push(token)
+      token = ''
+    }
     else if (token && char === ' ') {
       let following = ' '
       let i = cursor + 1
@@ -208,7 +213,6 @@ export function parseJs(sourceCode) {
       }
     }
     else if (vars[token.trim()] && tokens[i + 1]?.trim() === '=' && tokens[i + 2]?.trim() !== '=') {
-      const varName = token.trim()
       const localScope = []
       const start = ['(', '[', '{']
       const end = [')', ']', '}']

@@ -1,6 +1,6 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, isObject, isArray, remove, assign, isUndefined } from 'ts-fns'
+import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual } from 'ts-fns'
 import produce from 'immer'
 
 const modules = {}
@@ -184,23 +184,26 @@ class Element {
     }
 
     this.collector.add(react)
-    this.scheduleUpdate().then(() => {
-      this.collector.clear()
-    })
+    this.scheduleUpdate()
 
     const { value } = react
     return value
   }
 
   scheduleUpdate() {
-    return Promise.resolve().then(() => {
+    if (this._scheduleUpdating) {
+      return
+    }
+    requestAnimationFrame(() => {
       const { collector, mounted } = this
 
       if (!mounted) {
+        collector.clear()
         return
       }
 
       if (!collector.size) {
+        collector.clear()
         return
       }
 
@@ -212,7 +215,11 @@ class Element {
           this.queueUpdate(item)
         }
       })
+
+      collector.clear()
+      this._scheduleUpdating = false
     })
+    this._scheduleUpdating = true
   }
 
   queueUpdate(react) {
@@ -246,6 +253,18 @@ class Element {
     this.el = null
   }
 
+  collect(fn) {
+    const { collector } = this
+    const originCollector = new Set([...collector])
+    collector.clear()
+
+    const res = fn()
+
+    const deps = [...collector]
+    this.collector = originCollector
+    return [res, deps]
+  }
+
   h(type, ...fns) {
     let meta = {}
     let childrenGetter = null
@@ -255,9 +274,6 @@ class Element {
     else if (fns.length === 1) {
       [childrenGetter] = fns
     }
-
-    const { collector } = this
-    collector.clear()
 
     const {
       visible: visibleGetter,
@@ -269,21 +285,52 @@ class Element {
       keepAlive: keepAliveGetter,
     } = meta
 
-    const neures = []
-    if (repeatGetter) {
-      const { items, item: itemKey, index: indexKey } = repeatGetter()
-      each(items, (item, index) => {
-        const args = {
-          [itemKey]: item,
-          [indexKey]: index,
-        }
+    const [neures, deps] = this.collect(() => {
+      const neures = []
+      if (repeatGetter) {
+        const { items, item: itemKey, index: indexKey } = repeatGetter()
+        each(items, (item, index) => {
+          const args = {
+            [itemKey]: item,
+            [indexKey]: index,
+          }
 
-        const key = keyGetter ? keyGetter(args) : null
-        const visible = visibleGetter ? visibleGetter(args) : true
-        const attrs = attrsGetter ? attrsGetter(args) : {}
-        const props = propsGetter ? propsGetter(args) : {}
-        const events = eventsGetter ? eventsGetter(args) : {}
-        const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
+          const key = keyGetter ? keyGetter(args) : null
+          const visible = visibleGetter ? visibleGetter(args) : true
+          const attrs = attrsGetter ? attrsGetter(args) : {}
+          const props = propsGetter ? propsGetter(args) : {}
+          const events = eventsGetter ? eventsGetter(args) : {}
+          const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
+
+          const node = this.createElement(type, { attrs, props, events })
+          const neure = new Neure({
+            type,
+            meta,
+            childrenGetter,
+
+            node,
+
+            key,
+            visible,
+            keepAlive,
+            attrs,
+            props,
+            events,
+          })
+          neure.args = args
+          if (neures.length) {
+            neures[neures.length - 1].sibling = neure
+          }
+          neures.push(neure)
+        })
+      }
+      else {
+        const key = keyGetter ? keyGetter() : null
+        const visible = visibleGetter ? visibleGetter() : true
+        const attrs = attrsGetter ? attrsGetter() : {}
+        const props = propsGetter ? propsGetter() : {}
+        const events = eventsGetter ? eventsGetter() : {}
+        const keepAlive = keepAliveGetter ? keepAliveGetter() : false
 
         const node = this.createElement(type, { attrs, props, events })
         const neure = new Neure({
@@ -300,41 +347,10 @@ class Element {
           props,
           events,
         })
-        neure.args = args
-        if (neures.length) {
-          neures[neures.length - 1].sibling = neure
-        }
         neures.push(neure)
-      })
-    }
-    else {
-      const key = keyGetter ? keyGetter() : null
-      const visible = visibleGetter ? visibleGetter() : true
-      const attrs = attrsGetter ? attrsGetter() : {}
-      const props = propsGetter ? propsGetter() : {}
-      const events = eventsGetter ? eventsGetter() : {}
-      const keepAlive = keepAliveGetter ? keepAliveGetter() : false
-
-      const node = this.createElement(type, { attrs, props, events })
-      const neure = new Neure({
-        type,
-        meta,
-        childrenGetter,
-
-        node,
-
-        key,
-        visible,
-        keepAlive,
-        attrs,
-        props,
-        events,
-      })
-      neures.push(neure)
-    }
-
-    const deps = [...collector]
-    collector.clear()
+      }
+      return neures
+    })
 
     const records = []
     each(deps, (dep) => {
@@ -342,8 +358,12 @@ class Element {
         records.push([dep, neure])
       })
     })
-    this.schedule.push(...records)
-
+    each(records, (record) => {
+      if (!this.schedule.some(item => isShallowEqual(item, record))) {
+        this.schedule.push(record)
+      }
+    })
+    console.log(this.schedule)
 
     // // 放到父级节点下面
     // if (parent) {
