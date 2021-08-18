@@ -41,6 +41,7 @@ export function genComponent({ imports = [], deps = [], jsCode, cssCode, htmlCod
     ...imports.map(([vars, src]) => `import ${vars} from "${resolveUrl(source, src)}";`),
     '\n',
     `SFCJS.define("${source}", [${deps.map(([, src]) => `"${src}"`).join(', ')}], async function(${deps.map(([name]) => `${name}`).join(', ')}) {`,
+    'const SFC = this',
     jsCode,
     'return {',
     cssCode ? `style:${cssCode},` : '',

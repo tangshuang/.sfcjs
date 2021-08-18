@@ -8,14 +8,14 @@ export function parseHtml(sourceCode, components, vars) {
     const tokens = tokenize(code)
     each(tokens, (item, i) => {
       if (vars[item]) {
-        tokens[i] = `SFCJS.consume(${item})`
+        tokens[i] = `SFC.consume(${item})`
       }
     })
     const res = tokens.join('')
     return res
   }
 
-  let code = 'function(h) {return '
+  let code = 'function() {return '
   traverseHtmlAst(htmlAst, {
     '*': {
       enter(node, parent) {
@@ -141,7 +141,7 @@ export function parseHtml(sourceCode, components, vars) {
     const subArgsStr = subArgs ? `{${subArgs}}` : ''
     const inner = subs.length ? `(${subArgsStr}) =>` + (subs.length > 1 ? `[${subs.join(',')}]` : subs[0]) : null
     const params = [component, data, inner].filter(item => !!item)
-    const code = `h(${params.join(',')})`
+    const code = `SFC.h(${params.join(',')})`
     return code
   }
 

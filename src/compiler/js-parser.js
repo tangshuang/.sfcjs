@@ -147,14 +147,8 @@ export function parseJs(sourceCode) {
       vars[varName] = 1
       const varValue = value.trim()
       const varExp = varValue[0] === '{' ? `(${varValue})` : varValue
-      return `let ${varName} = SFCJS.reactive(() => ${varExp}, () => ${varName}, (value) => ${varName} = value);`
+      return `let ${varName} = SFC.reactive(() => ${varExp}, () => ${varName}, (value) => ${varName} = value);`
     })
-  }
-  const updateReactive = (name, code) => {
-    return code
-    // return code.replace(new RegExp(name + '\\s*?=([\\w\\W]+?);$'), (_, code) => {
-    //   return `${name} = SFCJS.update(${name}, () => ${code.trim()});`
-    // })
   }
 
   let code = ''
@@ -170,7 +164,7 @@ export function parseJs(sourceCode) {
       i ++
       let next = tokens[i]
       if (vars[next]) {
-        next = `SFCJS.consume(${next})`
+        next = `SFC.consume(${next})`
       }
       reactive += next
 
@@ -208,7 +202,7 @@ export function parseJs(sourceCode) {
         i ++
         next = tokens[i]
         if (vars[next]) {
-          next = `SFCJS.consume(${next})`
+          next = `SFC.consume(${next})`
         }
         reactive += next
       }
@@ -226,18 +220,18 @@ export function parseJs(sourceCode) {
 
       while (1) {
         if (i >= len) {
-          code += updateReactive(varName, reactive)
+          code += reactive
           break
         }
 
         // 结束标记
         if (!localScope.length && next === ';') {
-          code += updateReactive(varName, reactive)
+          code += reactive
           break
         }
         // TODO 需要支持不使用分号结尾的脚本
         if (!localScope.length && next === '\n') {
-          code += updateReactive(varName, reactive)
+          code += reactive
           break
         }
 
@@ -258,7 +252,7 @@ export function parseJs(sourceCode) {
         i ++
         next = tokens[i]
         if (vars[next]) {
-          reactive += `SFCJS.consume(${next})`
+          reactive += `SFC.consume(${next})`
         }
         else {
           reactive += next
@@ -266,7 +260,7 @@ export function parseJs(sourceCode) {
       }
     }
     else if (vars[token]) {
-      const next = `SFCJS.consume(${token})`
+      const next = `SFC.consume(${token})`
       code += next
     }
     else {

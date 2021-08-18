@@ -1,9 +1,9 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, isObject, isArray, remove, assign } from 'ts-fns'
+import { createProxy, isObject, isArray, remove, assign, isUndefined } from 'ts-fns'
 import produce from 'immer'
 
-export const modules = {}
+const modules = {}
 
 export function define(absUrl, deps, fn) {
   if (modules[absUrl]) {
@@ -49,6 +49,7 @@ class SFC_Element extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
+    this.componentRoot = null
   }
 
   async connectedCallback() {
@@ -66,73 +67,172 @@ class SFC_Element extends HTMLElement {
 
   async setup() {
     const { absUrl } = this
-    initComponent(absUrl)
+    const component = await initComponent(absUrl)
+    this.componentRoot = component
+    component.mount(this.shadowRoot)
+  }
+
+  disconnectedCallback() {
+    if (this.componentRoot) {
+      this.componentRoot.unmount()
+    }
   }
 }
 
 customElements.define('sfc-app', SFC_Element)
 
-let currentComponent = null
+
 const REACTIVE_SYMBOL = Symbol('reactive')
+class Component {
+  props = null
+  context = null
+  collector = new Set()
+  mounted = false
+  queue = []
+  el = null
 
-export function reactive(init, getter, setter) {
-  const value = init()
-  const immut = createProxy(value, {
-    writable() {
-      return false
-    },
-    receive(...args) {
-      if (args.length === 1) {
-        const [keyPath] = args
-        const next = produce(value, (value) => {
-          remove(value, keyPath)
-        })
-        const newReact = reactive(
-          () => next,
-          getter,
-          setter,
-        )
-        setter(newReact)
-      }
-      else {
-        const [keyPath, nextValue] = args
-        const next = produce(value, (value) => {
-          assign(value, keyPath, nextValue)
-        })
-        const newReact = reactive(
-          () => next,
-          getter,
-          setter,
-        )
-        setter(newReact)
-      }
-    },
-  })
-  var react = {
-    $$typeof: REACTIVE_SYMBOL,
-    $$component: currentComponent,
-    value: immut,
-    getter,
-    setter,
-  }
-  return react
-}
+  reactive(init, getter, setter) {
+    const value = init()
+    const immut = createProxy(value, {
+      writable: () => false,
+      receive: (...args) => {
+        if (args.length === 1) {
+          const [keyPath] = args
+          const next = produce(value, (value) => {
+            remove(value, keyPath)
+          })
+          const newReact = reactive(
+            () => next,
+            getter,
+            setter,
+          )
+          setter(newReact)
+        }
+        else {
+          const [keyPath, nextValue] = args
+          const next = produce(value, (value) => {
+            assign(value, keyPath, nextValue)
+          })
+          const newReact = this.reactive(
+            () => next,
+            getter,
+            setter,
+          )
+          setter(newReact)
+        }
+      },
+    })
 
-export function consume(react) {
-  if (!react || typeof react !== 'object') {
+    var react = {
+      $$typeof: REACTIVE_SYMBOL,
+      value: immut,
+      getter,
+      setter,
+    }
+
     return react
   }
 
-  if (react.$$typeof !== REACTIVE_SYMBOL) {
-    return react
+  consume(react) {
+    if (!react || typeof react !== 'object') {
+      return react
+    }
+
+    if (react.$$typeof !== REACTIVE_SYMBOL) {
+      return react
+    }
+
+    this.collector.add(react)
+    this.scheduleUpdate().then(() => {
+      this.collector.clear()
+    })
+
+    const { value } = react
+    return value
   }
 
-  const { $$component, value } = react
-  $$component.collector.add(react)
-  scheduleUpdateComponent($$component).then(() => {
-    $$component.collector.clear()
-  })
-  return value
+  scheduleUpdate() {
+    return Promise.resolve().then(() => {
+      const { collector, context, mounted } = this
+
+      if (!mounted) {
+        return
+      }
+
+      if (!collector.size) {
+        return
+      }
+
+      const items = [...collector]
+      each(items, (item) => {
+        const { getter } = item
+        const newValue = getter()
+        if (item !== newValue) {
+          this.queueUpdate(item)
+        }
+      })
+    })
+  }
+
+  queueUpdate(react) {
+    const { context, queue } = this
+    const { onUpdate } = context
+    if (onUpdate) {
+      onUpdate()
+    }
+  }
+
+  mount(el) {
+    const { context } = this
+    const { render, style } = context
+
+    const vnode = render()
+
+    this.el = el
+    this.mounted = true
+  }
+
+  unmount() {
+    this.el = null
+  }
+
+  h = (type, ...fns) => {
+    let dataFn = null
+    let childrenFn = null
+    if (fns.length > 1) {
+      [dataFn, childrenFn] = fns
+    }
+    else if (fns.length === 1) {
+      [childrenFn] = fns
+    }
+
+    const { visible, props, attrs, events, repeat, await: defer } = dataFn ? dataFn() : {}
+    const { collector } = this
+    const collected = [...collector]
+
+    if (!isUndefined(visible) && !visible) {
+      return null
+    }
+
+    const el = this.createElement(type, { props, attrs, events })
+    if (!childrenFn) {
+      return el
+    }
+
+
+    const { items, item, index } = repeat || {}
+    const { await: promise, data } = defer || {}
+
+
+
+
+  }
+
+  createElement(type, { props, attrs, events }) {
+
+  }
+
+  r = (name, ...args) => {}
 }
 
 async function initComponent(absUrl, data = {}) {
@@ -158,56 +258,14 @@ async function initComponent(absUrl, data = {}) {
   }
   const vars = deps.map(dep => scope[dep])
 
-  currentComponent = {
-    props,
-    context: null,
-    collector: new Set(),
-    inited: false,
-  }
-  const context = await Promise.resolve(fn(...vars))
-  currentComponent.context = context
-  const { onInit } = context
+  const component = new Component()
+  const context = await Promise.resolve(fn.call(component, ...vars))
+  component.context = context
 
+  const { onInit } = context
   if (onInit) {
     onInit()
   }
 
-  return context
+  return component
 }
-
-function mountComponent() {}
-
-function updateComponent() {}
-
-function unmountComponent() {}
-
-function scheduleUpdateComponent(component) {
-  return Promise.resolve().then(() => {
-    const { collector, context, inited } = component
-
-    if (!inited) {
-      component.inited = true
-      return
-    }
-
-    if (!collector.size) {
-      return
-    }
-
-    const items = [...collector]
-    each(items, (item) => {
-      const { getter } = item
-      const newValue = getter()
-      if (item !== newValue) {
-        queueUpdateComponent(component, item)
-      }
-    })
-
-    const { onUpdate } = context
-    if (onUpdate) {
-      onUpdate()
-    }
-  })
-}
-
-function queueUpdateComponent(component, reactive) {}

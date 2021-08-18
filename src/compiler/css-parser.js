@@ -736,7 +736,7 @@ export function parseCss(sourceCode, source, givenVars) {
     const tokens = tokenize(code)
     each(tokens, (item, i) => {
       if (vars[item]) {
-        tokens[i] = `SFCJS.consume(${item})`
+        tokens[i] = `SFC.consume(${item})`
       }
     })
     const res = tokens.join('')
@@ -756,7 +756,7 @@ export function parseCss(sourceCode, source, givenVars) {
     })
 
     const res = interpolated === value ? `'${value}'`
-      : /^\$\{.*?\}$/.test(interpolated) && (direct || interpolated.indexOf('SFCJS.consume') === -1) ? interpolated.substring(2, interpolated.length - 1)
+      : /^\$\{.*?\}$/.test(interpolated) && (direct || interpolated.indexOf('SFC.consume') === -1) ? interpolated.substring(2, interpolated.length - 1)
       : '`' + interpolated + '`'
     const output = res.replace(/\n*/g, '').replace(/\s+/g, ' ')
     return output
@@ -833,7 +833,7 @@ export function parseCss(sourceCode, source, givenVars) {
     return props
   }
   const createBy = (name, declarations) => {
-    let rule = `r(${name},`
+    let rule = `SFC.r(${name},`
 
     const properties = createProps(declarations)
     const props = []
