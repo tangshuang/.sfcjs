@@ -67,16 +67,23 @@ export function parseHtml(sourceCode, components, vars) {
           args.push(null)
         }
         else if (k === 'repeat') {
-          const [left, items] = value.split(' of ').map(item => item.trim())
-          const [item, index] = left.split(',').map(item => item.trim())
+          const matched = repeat.match(/^(.+?)(,(.+?))?of (.+?)( by (.+?))?$/);
+          if (!matched) {
+            throw new Error(`repeat 语法不正确`)
+          }
 
-          directives.push(['repeat', `{items:${consumeVars(items)},item:'${item}',index:'${index}'}`])
+          const [, item, , index = '', items, , key = ''] = matched
+
+          directives.push(['repeat', `{items:${consumeVars(items.trim())},item:'${item.trim()}',index:'${index.trim()}',key:'${key.trim()}'}`])
           args.push(item, index)
         }
-        else if (k === 'await') {
-          const [promise, data] = value.split(' then ')
-          directives.push(['await', `{await:${consumeVars(promise)},data:'${data}'}`])
-          args.push(data)
+        // else if (k === 'await') {
+        //   const [promise, data] = value.split(' then ')
+        //   directives.push(['await', `{await:${consumeVars(promise)},data:'${data}'}`])
+        //   args.push(data)
+        // }
+        else if (key === 'keep-alive') {
+          directives.push(['keepAlive', value])
         }
       }
       else {

@@ -49,7 +49,7 @@ class SFC_Element extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
-    this.componentRoot = null
+    this.elementRoot = null
   }
 
   async connectedCallback() {
@@ -67,14 +67,14 @@ class SFC_Element extends HTMLElement {
 
   async setup() {
     const { absUrl } = this
-    const component = await initComponent(absUrl)
-    this.componentRoot = component
-    component.mount(this.shadowRoot)
+    const element = await initComponent(absUrl)
+    this.elementRoot = element
+    element.mount(this.shadowRoot)
   }
 
   disconnectedCallback() {
-    if (this.componentRoot) {
-      this.componentRoot.unmount()
+    if (this.elementRoot) {
+      this.elementRoot.unmount()
     }
   }
 }
@@ -83,13 +83,32 @@ customElements.define('sfc-app', SFC_Element)
 
 
 const REACTIVE_SYMBOL = Symbol('reactive')
-class Component {
+
+class NeureNode {
+  constructor({ key, type, data, dataGetter, childrenGetter, node, parent }) {
+    this.key = key
+    this.type = type
+    this.data = data
+    this.dataGetter = dataGetter
+    this.childrenGetter = childrenGetter
+
+    this.node = node // DOM 节点
+
+    this.child = null // 第一个字节点
+    this.sibling = null // 第一个兄弟节点
+    this.return = parent // 父节点
+  }
+}
+
+class Element {
   props = null
   context = null
   collector = new Set()
   mounted = false
   queue = []
   el = null
+  schedule = []
+  neure = null
 
   reactive(init, getter, setter) {
     const value = init()
@@ -153,7 +172,7 @@ class Component {
 
   scheduleUpdate() {
     return Promise.resolve().then(() => {
-      const { collector, context, mounted } = this
+      const { collector, mounted } = this
 
       if (!mounted) {
         return
@@ -186,53 +205,140 @@ class Component {
     const { context } = this
     const { render, style } = context
 
-    const vnode = render()
+    const css = style()
+    const node = render()
+    each(css, (item) => {
+      el.appendChild(item)
+    })
+    if (node) {
+      el.appendChild(node)
+    }
 
     this.el = el
     this.mounted = true
   }
 
   unmount() {
+    this.mounted = false
+    this.props = null
+    this.context = null
+    this.collector.clear()
+    this.queue.length = 0
+    this.schedule.length = 0
+    this.el.innerHTML = ''
     this.el = null
   }
 
-  h = (type, ...fns) => {
-    let dataFn = null
-    let childrenFn = null
+  h(type, ...fns) {
+    let dataGetter = null
+    let childrenGetter = null
     if (fns.length > 1) {
-      [dataFn, childrenFn] = fns
+      [dataGetter, childrenGetter] = fns
     }
     else if (fns.length === 1) {
-      [childrenFn] = fns
+      [childrenGetter] = fns
     }
 
-    const { visible, props, attrs, events, repeat, await: defer } = dataFn ? dataFn() : {}
     const { collector } = this
-    const collected = [...collector]
+    collector.clear()
+    const data = dataGetter ? dataGetter() : {}
+    const deps = [...collector]
+    collector.clear()
 
-    if (!isUndefined(visible) && !visible) {
-      return null
+    const { visible, repeat } = data
+    if (repeat) {
+      const { items, item: itemKey, index: indexKey, key } = repeat
+      const sets = []
+      each(items, (item, index) => {
+        const trace = key ? item[key] : null
+        const args = {
+          [itemKey]: item,
+          [indexKey]: index,
+        }
+        const subs = childrenGetter(args)
+
+      })
     }
 
-    const el = this.createElement(type, { props, attrs, events })
+    const neureNode = new NeureNode({
+      type,
+      data,
+      dataGetter,
+      childrenGetter,
+    })
+
+    if (isUndefined(visible) || visible) {
+
+    }
+
+
+    const node = this.createElement(type, data)
+
+    // // 放到父级节点下面
+    // if (parent) {
+    //   if (parent.child) {
+    //     let child = parent.child
+    //     while (child.sibling) {
+    //       child = child.sibling
+    //     }
+    //     child.sibling = neureNode
+    //   }
+    //   else {
+    //     parent.child = neureNode
+    //   }
+    // }
+
+    const { visible, repeat, await: defer, keepAlive } = data
+
+
+
+    // const update = () => {
+    //   const { collector } = this
+    //   collector.clear()
+    //   const data = dataFn ? dataFn() : {}
+    //   const collected = [...collector]
+    //   collector.clear()
+
+    //   const stayCollected = []
+    //   this.schedule.forEach(([prevReact, prevUpdate], i) => {
+    //     if (prevUpdate === update && !collected.includes(prevReact)) {
+    //       this.schedule.splice(i, 1)
+    //     }
+    //     else if (prevUpdate === update) {
+    //       stayCollected.push(prevReact)
+    //     }
+    //   })
+
+    //   const nextCollected = collected.filter(item => !stayCollected.includes(item))
+    //   this.schedule.push(...nextCollected.map(item => [item, update]))
+
+    //   this.updateElement(el, data)
+    // }
+
+    // each(collected, (react) => {
+    //   this.schedule.push([react, update])
+    // })
+
     if (!childrenFn) {
       return el
     }
 
 
     const { items, item, index } = repeat || {}
-    const { await: promise, data } = defer || {}
+    const { await: promise, data: then } = defer || {}
 
 
 
+    return fragment
+  }
+
+  createElement(type, data) {
 
   }
 
-  createElement(type, { props, attrs, events }) {
+  updateElement(el, data) {}
 
-  }
-
-  r = (name, ...args) => {}
+  r(name, ...args) {}
 }
 
 async function initComponent(absUrl, data = {}) {
@@ -258,14 +364,14 @@ async function initComponent(absUrl, data = {}) {
   }
   const vars = deps.map(dep => scope[dep])
 
-  const component = new Component()
-  const context = await Promise.resolve(fn.call(component, ...vars))
-  component.context = context
+  const element = new Element()
+  const context = await Promise.resolve(fn.call(element, ...vars))
+  element.context = context
 
   const { onInit } = context
   if (onInit) {
     onInit()
   }
 
-  return component
+  return element
 }
