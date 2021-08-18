@@ -2,12 +2,14 @@ import { parseHtmlToAst, traverseAst as traverseHtmlAst } from 'abs-html'
 import { each, camelcase } from '../utils'
 import { tokenize } from './js-parser'
 
-export function parseHtml(sourceCode, components, vars) {
+export function parseHtml(sourceCode, components, givenVars) {
   const htmlAst = parseHtmlToAst(sourceCode.trim())
-  const consumeVars = (code) => {
+
+  const consumeVars = (code, vars = {}) => {
     const tokens = tokenize(code)
+    const localVars = { ...givenVars, ...vars }
     each(tokens, (item, i) => {
-      if (vars[item]) {
+      if (localVars[item]) {
         tokens[i] = `SFC.consume(${item})`
       }
     })
@@ -63,18 +65,17 @@ export function parseHtml(sourceCode, components, vars) {
       else if (/^\(.*?\)$/.test(key)) {
         const k = key.substring(1, key.length - 1)
         if (k === 'if') {
-          directives.push(['visible', consumeVars(value)])
+          directives.push(['visible', value])
           args.push(null)
         }
         else if (k === 'repeat') {
-          const matched = repeat.match(/^(.+?)(,(.+?))?of (.+?)( by (.+?))?$/);
+          const matched = value.match(/^(.+?)(,(.+?))?of (.+?)$/);
           if (!matched) {
             throw new Error(`repeat 语法不正确`)
           }
 
-          const [, item, , index = '', items, , key = ''] = matched
-
-          directives.push(['repeat', `{items:${consumeVars(items.trim())},item:'${item.trim()}',index:'${index.trim()}',key:'${key.trim()}'}`])
+          const [, item, , index = 'index', items] = matched
+          directives.push(['repeat', `{items:${items.trim()},item:'${item.trim()}',index:'${index.trim()}'}`, true])
           args.push(item, index)
         }
         // else if (k === 'await') {
@@ -82,8 +83,11 @@ export function parseHtml(sourceCode, components, vars) {
         //   directives.push(['await', `{await:${consumeVars(promise)},data:'${data}'}`])
         //   args.push(data)
         // }
-        else if (key === 'keep-alive') {
+        else if (k === 'keep-alive') {
           directives.push(['keepAlive', value])
+        }
+        else if (k === 'key') {
+          directives.push(['key', value])
         }
       }
       else {
@@ -92,7 +96,14 @@ export function parseHtml(sourceCode, components, vars) {
       }
     })
 
-    const inner = [
+    const finalArgs = args.filter(item => !!item).join(',')
+    const finalArgsStr = finalArgs ? `{${finalArgs}}` : ''
+    const finalArgsMap = args.filter(item => !!item).reduce((map, curr) => {
+      map[curr] = 1
+      return map
+    }, {})
+
+    const data = [
       ['props', props],
       ['attrs', attrs],
       ['events', events],
@@ -101,20 +112,17 @@ export function parseHtml(sourceCode, components, vars) {
       if (!info.length) {
         return
       }
-      let res = name + ': {'
-      res += info.map(([key, value]) => `${key}: ${value}`).join(',')
-      res += '}'
+      let res = `${name}: (${finalArgsStr}) => ({`
+      res += info.map(([key, value]) => `${key}:${value}`).join(',')
+      res += '})'
       return res
     }).concat(directives.map((item) => {
-      const [name, value] = item
-      return `${name}: ${value}`
+      const [name, value, nonArgs] = item
+      const exp = consumeVars(value, finalArgsMap)
+      return `${name}:(${nonArgs ? '' : finalArgsStr}) => ${value[0] === '{' ? `(${exp})` : exp}`
     })).filter(item => !!item).join(',')
 
-    if (!inner) {
-      return ''
-    }
-
-    return [`() => ({${inner}})`, args]
+    return [data ? `{${data}}` : '', args]
   }
 
   const build = (astNode) => {
@@ -132,7 +140,7 @@ export function parseHtml(sourceCode, components, vars) {
       each(children, (child) => {
         if (typeof child === 'string') {
           const node = interpolate(child)
-          subs.push(node)
+          subs.push(`'${node}'`)
         }
         else {
           const node = build(child)

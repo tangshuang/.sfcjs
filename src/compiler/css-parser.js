@@ -732,16 +732,18 @@ export function parseCss(sourceCode, source, givenVars) {
     }
   })
 
-  const consumeVars = (code, vars = givenVars) => {
+  const consumeVars = (code, vars = {}) => {
     const tokens = tokenize(code)
+    const localVars = { ...givenVars, ...vars }
     each(tokens, (item, i) => {
-      if (vars[item]) {
+      if (localVars[item]) {
         tokens[i] = `SFC.consume(${item})`
       }
     })
     const res = tokens.join('')
     return res
   }
+
   const createName = (name) => {
     const str = name.replace(/\[\[(.*?)\]\]/g, (_, $1) => {
       return '${' + consumeVars($1) + '}'

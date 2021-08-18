@@ -18,7 +18,7 @@
     emit('grow', age)
   }
 
-  const colors = [
+  let colors = [
     '#fee',
     '#ccd',
     '#a97',
@@ -98,7 +98,7 @@
     :style="age / 3 > 10 ? 'color: red;' : undefined"
     (if)="age > 10"
   >{{age}}</span>
-  <span (repeat)="color,index of colors">
+  <span (repeat)="color,index of colors" (if)="!!color" (key)="color">
     <i>{{index}}: {{color}}</i>
   </span>
   <button @click="grow(event)">grow</button>

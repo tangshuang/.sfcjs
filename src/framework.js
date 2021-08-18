@@ -84,12 +84,35 @@ customElements.define('sfc-app', SFC_Element)
 
 const REACTIVE_SYMBOL = Symbol('reactive')
 
-class NeureNode {
-  constructor({ key, type, data, dataGetter, childrenGetter, node, parent }) {
+class Neure {
+  constructor({
+    type,
+    meta,
+    childrenGetter,
+
+    node,
+    parent,
+
+    key,
+    visible,
+    keepAlive,
+    attrs,
+    props,
+    events,
+  }) {
+    // 实时信息，当前状态，用于下一次渲染
     this.key = key
+    this.visible = visible
+    this.keepAlive = keepAlive
+    this.attrs = attrs
+    this.props = props
+    this.events = events
+
+    this.args = null // 记录meta内函数的参数
+
+    // 固定信息
     this.type = type
-    this.data = data
-    this.dataGetter = dataGetter
+    this.meta = meta
     this.childrenGetter = childrenGetter
 
     this.node = node // DOM 节点
@@ -108,7 +131,6 @@ class Element {
   queue = []
   el = null
   schedule = []
-  neure = null
 
   reactive(init, getter, setter) {
     const value = init()
@@ -206,13 +228,8 @@ class Element {
     const { render, style } = context
 
     const css = style()
-    const node = render()
-    each(css, (item) => {
-      el.appendChild(item)
-    })
-    if (node) {
-      el.appendChild(node)
-    }
+    const neure = render()
+    // TODO 通过遍历构建DOM树
 
     this.el = el
     this.mounted = true
@@ -230,10 +247,10 @@ class Element {
   }
 
   h(type, ...fns) {
-    let dataGetter = null
+    let meta = {}
     let childrenGetter = null
     if (fns.length > 1) {
-      [dataGetter, childrenGetter] = fns
+      [meta, childrenGetter] = fns
     }
     else if (fns.length === 1) {
       [childrenGetter] = fns
@@ -241,38 +258,92 @@ class Element {
 
     const { collector } = this
     collector.clear()
-    const data = dataGetter ? dataGetter() : {}
-    const deps = [...collector]
-    collector.clear()
 
-    const { visible, repeat } = data
-    if (repeat) {
-      const { items, item: itemKey, index: indexKey, key } = repeat
-      const sets = []
+    const {
+      visible: visibleGetter,
+      repeat: repeatGetter,
+      key: keyGetter,
+      attrs: attrsGetter,
+      props: propsGetter,
+      events: eventsGetter,
+      keepAlive: keepAliveGetter,
+    } = meta
+
+    const neures = []
+    if (repeatGetter) {
+      const { items, item: itemKey, index: indexKey } = repeatGetter()
       each(items, (item, index) => {
-        const trace = key ? item[key] : null
         const args = {
           [itemKey]: item,
           [indexKey]: index,
         }
-        const subs = childrenGetter(args)
 
+        const key = keyGetter ? keyGetter(args) : null
+        const visible = visibleGetter ? visibleGetter(args) : true
+        const attrs = attrsGetter ? attrsGetter(args) : {}
+        const props = propsGetter ? propsGetter(args) : {}
+        const events = eventsGetter ? eventsGetter(args) : {}
+        const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
+
+        const node = this.createElement(type, { attrs, props, events })
+        const neure = new Neure({
+          type,
+          meta,
+          childrenGetter,
+
+          node,
+
+          key,
+          visible,
+          keepAlive,
+          attrs,
+          props,
+          events,
+        })
+        neure.args = args
+        if (neures.length) {
+          neures[neures.length - 1].sibling = neure
+        }
+        neures.push(neure)
       })
     }
+    else {
+      const key = keyGetter ? keyGetter() : null
+      const visible = visibleGetter ? visibleGetter() : true
+      const attrs = attrsGetter ? attrsGetter() : {}
+      const props = propsGetter ? propsGetter() : {}
+      const events = eventsGetter ? eventsGetter() : {}
+      const keepAlive = keepAliveGetter ? keepAliveGetter() : false
 
-    const neureNode = new NeureNode({
-      type,
-      data,
-      dataGetter,
-      childrenGetter,
-    })
+      const node = this.createElement(type, { attrs, props, events })
+      const neure = new Neure({
+        type,
+        meta,
+        childrenGetter,
 
-    if (isUndefined(visible) || visible) {
+        node,
 
+        key,
+        visible,
+        keepAlive,
+        attrs,
+        props,
+        events,
+      })
+      neures.push(neure)
     }
 
+    const deps = [...collector]
+    collector.clear()
 
-    const node = this.createElement(type, data)
+    const records = []
+    each(deps, (dep) => {
+      each(neures, (neure) => {
+        records.push([dep, neure])
+      })
+    })
+    this.schedule.push(...records)
+
 
     // // 放到父级节点下面
     // if (parent) {
@@ -281,21 +352,19 @@ class Element {
     //     while (child.sibling) {
     //       child = child.sibling
     //     }
-    //     child.sibling = neureNode
+    //     child.sibling = neure
     //   }
     //   else {
-    //     parent.child = neureNode
+    //     parent.child = neure
     //   }
     // }
-
-    const { visible, repeat, await: defer, keepAlive } = data
 
 
 
     // const update = () => {
     //   const { collector } = this
     //   collector.clear()
-    //   const data = dataFn ? dataFn() : {}
+    //   const meta = metaFn ? metaFn() : {}
     //   const collected = [...collector]
     //   collector.clear()
 
@@ -312,43 +381,45 @@ class Element {
     //   const nextCollected = collected.filter(item => !stayCollected.includes(item))
     //   this.schedule.push(...nextCollected.map(item => [item, update]))
 
-    //   this.updateElement(el, data)
+    //   this.updateElement(el, meta)
     // }
 
     // each(collected, (react) => {
     //   this.schedule.push([react, update])
     // })
 
-    if (!childrenFn) {
-      return el
-    }
+    // if (!childrenFn) {
+    //   return el
+    // }
 
 
-    const { items, item, index } = repeat || {}
-    const { await: promise, data: then } = defer || {}
+    // const { items, item, index } = repeat || {}
+    // const { await: promise, meta: then } = defer || {}
 
 
 
-    return fragment
+    // return fragment
+
+    return neures
   }
 
-  createElement(type, data) {
+  createElement(type, meta) {
 
   }
 
-  updateElement(el, data) {}
+  updateElement(el, meta) {}
 
   r(name, ...args) {}
 }
 
-async function initComponent(absUrl, data = {}) {
+async function initComponent(absUrl, meta = {}) {
   const mod = modules[absUrl]
   if (!mod) {
     throw new Error(`${absUrl} 组件尚未加载`)
   }
 
   const { deps, fn } = mod
-  const { props, events } = data
+  const { props, events } = meta
   await loadDepComponents(deps)
   const scope = {
     ...modules,
