@@ -85,7 +85,6 @@ class Neure {
     type,
     meta,
     childrenGetter,
-    text,
 
     node,
     parent,
@@ -111,13 +110,70 @@ class Neure {
     this.type = type
     this.meta = meta
     this.childrenGetter = childrenGetter
-    this.text = text
 
     this.node = node // DOM 节点
 
     this.child = null // 第一个字节点
     this.sibling = null // 第一个兄弟节点
-    this.return = parent // 父节点
+    this.parent = parent // 父节点
+  }
+
+  mount(target) {
+    const { node, child, visible, parent, sibling } = this
+
+    if (!visible) {
+      if (sibling) {
+        this.next()
+      }
+      else {
+        parent?.next()
+      }
+      return
+    }
+
+    if (isInstanceOf(node, Element)) {
+      return
+    }
+
+    else if (isInstanceOf(target, Element)) {
+      return
+    }
+
+    target.appendChild(node)
+    if (child) {
+      child.mount(node)
+    }
+    else if (sibling) {
+      this.next()
+    }
+    else {
+      parent?.next()
+    }
+  }
+
+  next() {
+    const { sibling, parent } = this
+    if (sibling) {
+      sibling.mount(parent.node)
+    }
+    else {
+      parent?.next()
+    }
+  }
+}
+
+class NeureList extends Array {
+  constructor(items, data) {
+    super(items)
+
+    const {
+      parent,
+      getter,
+    } = data
+
+    this.getter = getter // 获取items的函数
+    this.sibling = null // 第一个兄弟节点
+    this.parent = parent // 父节点
   }
 }
 
@@ -127,7 +183,7 @@ class Element {
   collector = new Set()
   mounted = false
   queue = []
-  el = null
+  root = null
   schedule = []
 
   constructor() {
@@ -247,11 +303,15 @@ class Element {
 
     const css = style()
     const neures = render()
-    // TODO 通过遍历构建DOM树
-    console.log(neures)
-    console.log(this.schedule)
 
-    this.el = el
+    const fragment = document.createDocumentFragment()
+    each(neures, (neure) => {
+      neure.mount(fragment)
+    })
+
+    console.log(neures, fragment)
+
+    this.root = el
     this.mounted = true
   }
 
@@ -262,8 +322,8 @@ class Element {
     this.collector.clear()
     this.queue.length = 0
     this.schedule.length = 0
-    this.el.innerHTML = ''
-    this.el = null
+    this.root.innerHTML = ''
+    this.root = null
   }
 
   collect(fn) {
@@ -285,88 +345,91 @@ class Element {
     }
 
     const {
-      visible: visibleGetter,
       repeat: repeatGetter,
-      key: keyGetter,
-      attrs: attrsGetter,
-      props: propsGetter,
-      events: eventsGetter,
-      keepAlive: keepAliveGetter,
     } = meta
 
-    const [neures, deps] = this.collect(() => {
-      const neures = []
+    const createNeureNode = (meta, args) => {
+      const {
+        visible: visibleGetter,
+        key: keyGetter,
+        attrs: attrsGetter,
+        props: propsGetter,
+        events: eventsGetter,
+        keepAlive: keepAliveGetter,
+      } = meta
+
+      const key = keyGetter ? keyGetter(args) : null
+      const visible = visibleGetter ? visibleGetter(args) : true
+      const attrs = attrsGetter ? attrsGetter(args) : {}
+      const props = propsGetter ? propsGetter(args) : {}
+      const events = eventsGetter ? eventsGetter(args) : {}
+      const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
+
+      const node = this.createElement(type, { attrs, props, events })
+      const neure = new Neure({
+        type,
+        meta,
+        childrenGetter,
+
+        node,
+
+        key,
+        visible,
+        keepAlive,
+        attrs,
+        props,
+        events,
+      })
+
+      if (args) {
+        neure.args = args
+      }
+
+      return neure
+    }
+
+    const deps = []
+    const [neure, neureDeps] = this.collect(() => {
       if (repeatGetter) {
-        const { items, item: itemKey, index: indexKey } = repeatGetter()
-        each(items, (item, index) => {
-          const args = {
-            [itemKey]: item,
-            [indexKey]: index,
-          }
+        const getter = () => {
+          const neures = []
+          const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
+          deps.push(...repeatDeps)
+          each(items, (item, index) => {
+            const args = {
+              [itemKey]: item,
+              [indexKey]: index,
+            }
 
-          const key = keyGetter ? keyGetter(args) : null
-          const visible = visibleGetter ? visibleGetter(args) : true
-          const attrs = attrsGetter ? attrsGetter(args) : {}
-          const props = propsGetter ? propsGetter(args) : {}
-          const events = eventsGetter ? eventsGetter(args) : {}
-          const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
-
-          const node = this.createElement(type, { attrs, props, events })
-          const neure = new Neure({
-            type,
-            meta,
-            childrenGetter,
-
-            node,
-
-            key,
-            visible,
-            keepAlive,
-            attrs,
-            props,
-            events,
+            const neure = createNeureNode(meta, args)
+            if (neures.length) {
+              neures[neures.length - 1].sibling = neure
+            }
+            neures.push(neure)
           })
-          neure.args = args
-          if (neures.length) {
-            neures[neures.length - 1].sibling = neure
-          }
-          neures.push(neure)
+          return neures
+        }
+        const neures = getter()
+        const neureList = new NeureList(neures, { getter })
+        each(neures, (neure) => {
+          neure.parent = neureList
         })
+        neureList.child = neures[0] || null
+        return neureList
       }
       else {
-        const key = keyGetter ? keyGetter() : null
-        const visible = visibleGetter ? visibleGetter() : true
-        const attrs = attrsGetter ? attrsGetter() : {}
-        const props = propsGetter ? propsGetter() : {}
-        const events = eventsGetter ? eventsGetter() : {}
-        const keepAlive = keepAliveGetter ? keepAliveGetter() : false
-
-        const node = this.createElement(type, { attrs, props, events })
-        const neure = new Neure({
-          type,
-          meta,
-          childrenGetter,
-
-          node,
-
-          key,
-          visible,
-          keepAlive,
-          attrs,
-          props,
-          events,
-        })
-        neures.push(neure)
+        return createNeureNode(meta)
       }
-      return neures
     })
+    deps.push(...neureDeps)
 
     let current = null
     const setTextNode = (text, parent) => {
       const node = new Neure({
         type: TEXT_NODE,
-        text,
+        node: document.createTextNode(text),
         parent,
+        visible: true,
       })
       if (current) {
         current.sibling = node
@@ -377,7 +440,7 @@ class Element {
       current = node
     }
     const setNeureNode = (node, parent) => {
-      node.return = parent
+      node.parent = parent
       if (current) {
         current.sibling = node
       }
@@ -386,6 +449,8 @@ class Element {
       }
       current = node
     }
+
+    const neures = isInstanceOf(neure, NeureList) ? neure : [neure]
     each(neures, (neure) => {
       const { visible, childrenGetter, args } = neure
       if (!visible) {
@@ -427,9 +492,7 @@ class Element {
 
     const records = []
     each(deps, (dep) => {
-      each(neures, (neure) => {
-        records.push([dep, neure])
-      })
+      records.push([dep, neure])
     })
     each(records, (record) => {
       if (!this.schedule.some(item => isShallowEqual(item, record))) {
