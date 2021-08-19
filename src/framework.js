@@ -79,12 +79,15 @@ customElements.define('sfc-app', SFC_Element)
 
 const REACTIVE_SYMBOL = Symbol('reactive')
 const TEXT_NODE = Symbol('TextNode')
+const FRAGMENT_NODE = Symbol('Fragment')
 
 class Neure {
   constructor({
     type,
     meta,
     childrenGetter,
+
+    args,
 
     node,
     parent,
@@ -104,7 +107,7 @@ class Neure {
     this.props = props
     this.events = events
 
-    this.args = null // 记录meta内函数的参数
+    this.args = args // 记录meta内函数的参数
 
     // 固定信息
     this.type = type
@@ -119,23 +122,30 @@ class Neure {
   }
 
   mount(target) {
-    const { node, child, visible, parent, sibling } = this
+    const { node, child, visible } = this
+
+    if (!target) {
+      this.next()
+      return
+    }
+
+    if (!node) {
+      this.next()
+      return
+    }
 
     if (!visible) {
-      if (sibling) {
-        this.next()
-      }
-      else {
-        parent?.next()
-      }
+      this.next()
       return
     }
 
     if (isInstanceOf(node, Element)) {
+      // TODO
       return
     }
 
     else if (isInstanceOf(target, Element)) {
+      // TODO
       return
     }
 
@@ -143,11 +153,8 @@ class Neure {
     if (child) {
       child.mount(node)
     }
-    else if (sibling) {
-      this.next()
-    }
     else {
-      parent?.next()
+      this.next()
     }
   }
 
@@ -162,18 +169,25 @@ class Neure {
   }
 }
 
-class NeureList extends Array {
-  constructor(items, data) {
-    super(items)
+class NeureList extends Neure {
+  setList(getter) {
+    this.getter = getter
 
-    const {
-      parent,
-      getter,
-    } = data
+    const neures = getter()
+    each(neures, (neure) => {
+      neure.parent = this
+    })
 
-    this.getter = getter // 获取items的函数
-    this.sibling = null // 第一个兄弟节点
-    this.parent = parent // 父节点
+    this.child = neures[0] || null
+    this.list = neures
+  }
+
+  mount(target) {
+    const { list } = this
+    each(list, (item) => {
+      item.mount(target)
+    })
+    this.next()
   }
 }
 
@@ -302,14 +316,12 @@ class Element {
     const { render, style } = context
 
     const css = style()
-    const neures = render()
+    const neure = render()
 
     const fragment = document.createDocumentFragment()
-    each(neures, (neure) => {
-      neure.mount(fragment)
-    })
+    neure.mount(fragment)
 
-    console.log(neures, fragment)
+    console.log(neure, fragment)
 
     this.root = el
     this.mounted = true
@@ -344,9 +356,8 @@ class Element {
       meta = {}
     }
 
-    const {
-      repeat: repeatGetter,
-    } = meta
+
+    const deps = []
 
     const createNeureNode = (meta, args) => {
       const {
@@ -388,8 +399,10 @@ class Element {
       return neure
     }
 
-    const deps = []
-    const [neure, neureDeps] = this.collect(() => {
+    const createNeure = (meta, args) => {
+      const {
+        repeat: repeatGetter,
+      } = meta
       if (repeatGetter) {
         const getter = () => {
           const neures = []
@@ -401,7 +414,8 @@ class Element {
               [indexKey]: index,
             }
 
-            const neure = createNeureNode(meta, args)
+            const { repeat, ...others } = meta
+            const neure = createNeure(others, args)
             if (neures.length) {
               neures[neures.length - 1].sibling = neure
             }
@@ -409,18 +423,23 @@ class Element {
           })
           return neures
         }
-        const neures = getter()
-        const neureList = new NeureList(neures, { getter })
-        each(neures, (neure) => {
-          neure.parent = neureList
+        const neureList = new NeureList({
+          type: FRAGMENT_NODE,
+          meta,
+          childrenGetter,
+
+          visible: true,
+          args,
         })
-        neureList.child = neures[0] || null
+        neureList.setList(getter)
         return neureList
       }
       else {
-        return createNeureNode(meta)
+        return createNeureNode(meta, args)
       }
-    })
+    }
+
+    const [neure, neureDeps] = this.collect(() => createNeure(meta))
     deps.push(...neureDeps)
 
     let current = null
@@ -450,8 +469,7 @@ class Element {
       current = node
     }
 
-    const neures = isInstanceOf(neure, NeureList) ? neure : [neure]
-    each(neures, (neure) => {
+    const genChildren = (neure) => {
       const { visible, childrenGetter, args } = neure
       if (!visible) {
         return
@@ -462,21 +480,14 @@ class Element {
       }
 
       const [sub, childrenDeps] = this.collect(() => childrenGetter(args))
+
       deps.push(...childrenDeps)
+
       if (isString(sub)) {
         setTextNode(sub, neure)
       }
-      else if (isArray(sub) && sub.every(item => isArray(item))) {
-        each(sub, (items) => {
-          each(items, (item) => {
-            if (isInstanceOf(item, Neure)) {
-              setNeureNode(item, neure)
-            }
-            else if (isString(item)) {
-              setTextNode(item, neure)
-            }
-          })
-        })
+      else if (isInstanceOf(sub, Neure)) {
+        setNeureNode(sub, neure)
       }
       else if (isArray(sub)) {
         each(sub, (item) => {
@@ -488,7 +499,14 @@ class Element {
           }
         })
       }
-    })
+    }
+
+    if (isInstanceOf(neure, NeureList)) {
+      each(neure.list, genChildren)
+    }
+    else {
+      genChildren(neure)
+    }
 
     const records = []
     each(deps, (dep) => {
@@ -500,62 +518,7 @@ class Element {
       }
     })
 
-    // // 放到父级节点下面
-    // if (parent) {
-    //   if (parent.child) {
-    //     let child = parent.child
-    //     while (child.sibling) {
-    //       child = child.sibling
-    //     }
-    //     child.sibling = neure
-    //   }
-    //   else {
-    //     parent.child = neure
-    //   }
-    // }
-
-
-
-    // const update = () => {
-    //   const { collector } = this
-    //   collector.clear()
-    //   const meta = metaFn ? metaFn() : {}
-    //   const collected = [...collector]
-    //   collector.clear()
-
-    //   const stayCollected = []
-    //   this.schedule.forEach(([prevReact, prevUpdate], i) => {
-    //     if (prevUpdate === update && !collected.includes(prevReact)) {
-    //       this.schedule.splice(i, 1)
-    //     }
-    //     else if (prevUpdate === update) {
-    //       stayCollected.push(prevReact)
-    //     }
-    //   })
-
-    //   const nextCollected = collected.filter(item => !stayCollected.includes(item))
-    //   this.schedule.push(...nextCollected.map(item => [item, update]))
-
-    //   this.updateElement(el, meta)
-    // }
-
-    // each(collected, (react) => {
-    //   this.schedule.push([react, update])
-    // })
-
-    // if (!childrenFn) {
-    //   return el
-    // }
-
-
-    // const { items, item, index } = repeat || {}
-    // const { await: promise, meta: then } = defer || {}
-
-
-
-    // return fragment
-
-    return neures
+    return neure
   }
 
   createElement(type, meta) {
