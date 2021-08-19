@@ -1,20 +1,28 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual } from 'ts-fns'
+import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual, isString, isInstanceOf, decideby } from 'ts-fns'
 import produce from 'immer'
 
 const modules = {}
+
+class Component {
+  constructor({ url, deps, fn }) {
+    this.url = url
+    this.deps = deps
+    this.fn = fn
+  }
+}
 
 export function define(absUrl, deps, fn) {
   if (modules[absUrl]) {
     return
   }
 
-  const mod = modules[absUrl] = {
+  const mod = modules[absUrl] = new Component({
     url: absUrl,
     deps,
     fn,
-  }
+  })
 
   const depComponents = deps.filter(item => item[0] === '.')
   if (!depComponents.length) {
@@ -31,25 +39,11 @@ export function define(absUrl, deps, fn) {
   })
 }
 
-async function loadDepComponents(deps) {
-  const components = deps.filter(item => /^[a-z]+?:\/\//.test(item))
-  if (!components.length) {
-    return
-  }
-  await Promise.all(components.map((url) => {
-    return getComponentCode(url).then((code) => {
-      const script = createScriptByBlob(code)
-      script.setAttribute('sfc-src', url)
-      return insertScript(script)
-    })
-  }))
-}
-
 class SFC_Element extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
-    this.elementRoot = null
+    this.rootElement = null
   }
 
   async connectedCallback() {
@@ -67,14 +61,15 @@ class SFC_Element extends HTMLElement {
 
   async setup() {
     const { absUrl } = this
-    const element = await initComponent(absUrl)
-    this.elementRoot = element
+    const element = initComponent(absUrl)
+    this.rootElement = element
+    await element.$ready()
     element.mount(this.shadowRoot)
   }
 
   disconnectedCallback() {
-    if (this.elementRoot) {
-      this.elementRoot.unmount()
+    if (this.rootElement) {
+      this.rootElement.unmount()
     }
   }
 }
@@ -83,12 +78,14 @@ customElements.define('sfc-app', SFC_Element)
 
 
 const REACTIVE_SYMBOL = Symbol('reactive')
+const TEXT_NODE = Symbol('TextNode')
 
 class Neure {
   constructor({
     type,
     meta,
     childrenGetter,
+    text,
 
     node,
     parent,
@@ -114,6 +111,7 @@ class Neure {
     this.type = type
     this.meta = meta
     this.childrenGetter = childrenGetter
+    this.text = text
 
     this.node = node // DOM 节点
 
@@ -131,6 +129,19 @@ class Element {
   queue = []
   el = null
   schedule = []
+
+  constructor() {
+    this._ready = new Promise((resolve) => {
+      this.__ready = resolve
+    })
+  }
+
+  $ready(resolved) {
+    if (resolved) {
+      this.__ready()
+    }
+    return this._ready
+  }
 
   reactive(init, getter, setter) {
     const value = init()
@@ -235,8 +246,10 @@ class Element {
     const { render, style } = context
 
     const css = style()
-    const neure = render()
+    const neures = render()
     // TODO 通过遍历构建DOM树
+    console.log(neures)
+    console.log(this.schedule)
 
     this.el = el
     this.mounted = true
@@ -265,14 +278,10 @@ class Element {
     return [res, deps]
   }
 
-  h(type, ...fns) {
-    let meta = {}
-    let childrenGetter = null
-    if (fns.length > 1) {
-      [meta, childrenGetter] = fns
-    }
-    else if (fns.length === 1) {
-      [childrenGetter] = fns
+  h(type, meta, childrenGetter) {
+    if (typeof meta === 'function') {
+      childrenGetter = meta
+      meta = {}
     }
 
     const {
@@ -352,6 +361,70 @@ class Element {
       return neures
     })
 
+    let current = null
+    const setTextNode = (text, parent) => {
+      const node = new Neure({
+        type: TEXT_NODE,
+        text,
+        parent,
+      })
+      if (current) {
+        current.sibling = node
+      }
+      if (!parent.child) {
+        parent.child = node
+      }
+      current = node
+    }
+    const setNeureNode = (node, parent) => {
+      node.return = parent
+      if (current) {
+        current.sibling = node
+      }
+      if (!parent.child) {
+        parent.child = node
+      }
+      current = node
+    }
+    each(neures, (neure) => {
+      const { visible, childrenGetter, args } = neure
+      if (!visible) {
+        return
+      }
+
+      if (!childrenGetter) {
+        return
+      }
+
+      const [sub, childrenDeps] = this.collect(() => childrenGetter(args))
+      deps.push(...childrenDeps)
+      if (isString(sub)) {
+        setTextNode(sub, neure)
+      }
+      else if (isArray(sub) && sub.every(item => isArray(item))) {
+        each(sub, (items) => {
+          each(items, (item) => {
+            if (isInstanceOf(item, Neure)) {
+              setNeureNode(item, neure)
+            }
+            else if (isString(item)) {
+              setTextNode(item, neure)
+            }
+          })
+        })
+      }
+      else if (isArray(sub)) {
+        each(sub, (item) => {
+          if (isInstanceOf(item, Neure)) {
+            setNeureNode(item, neure)
+          }
+          else if (isString(item)) {
+            setTextNode(item, neure)
+          }
+        })
+      }
+    })
+
     const records = []
     each(deps, (dep) => {
       each(neures, (neure) => {
@@ -363,7 +436,6 @@ class Element {
         this.schedule.push(record)
       }
     })
-    console.log(this.schedule)
 
     // // 放到父级节点下面
     // if (parent) {
@@ -424,7 +496,20 @@ class Element {
   }
 
   createElement(type, meta) {
+    const { props, attrs, events } = meta
+    if (isInstanceOf(type, Component)) {
+      const element = initComponent(type, { props, events })
+      return element
+    }
 
+    const node = document.createElement(type)
+    each(attrs, (value, key) => {
+      node.setAttribute(key, value)
+    })
+    each(events, (fn, key) => {
+      node.addEventListener(key, fn)
+    })
+    return node
   }
 
   updateElement(el, meta) {}
@@ -432,37 +517,57 @@ class Element {
   r(name, ...args) {}
 }
 
-async function initComponent(absUrl, meta = {}) {
-  const mod = modules[absUrl]
-  if (!mod) {
-    throw new Error(`${absUrl} 组件尚未加载`)
-  }
-
-  const { deps, fn } = mod
-  const { props, events } = meta
-  await loadDepComponents(deps)
-  const scope = {
-    ...modules,
-    props,
-    emit: (event, ...args) => {
-      const callback = events[event]
-      if (!callback) {
-        return
-      }
-
-      return callback(...args)
-    },
-  }
-  const vars = deps.map(dep => scope[dep])
-
+function initComponent(absUrl, meta = {}) {
   const element = new Element()
-  const context = await Promise.resolve(fn.call(element, ...vars))
-  element.context = context
 
-  const { onInit } = context
-  if (onInit) {
-    onInit()
-  }
+  ;(async function() {
+    const component = isInstanceOf(absUrl, Component) ? absUrl : modules[absUrl]
+
+    if (!component) {
+      throw new Error(`${absUrl} 组件尚未加载`)
+    }
+
+    const { deps, fn } = component
+    const { props = {}, events = {} } = meta
+    await loadDepComponents(deps)
+    const scope = {
+      ...modules,
+      props,
+      emit: (event, ...args) => {
+        const callback = events[event]
+        if (!callback) {
+          return
+        }
+
+        return callback(...args)
+      },
+    }
+    const vars = deps.map(dep => scope[dep])
+
+    const context = await Promise.resolve(fn.call(element, ...vars))
+    element.context = context
+
+    const { onInit } = context
+    if (onInit) {
+      onInit()
+    }
+
+    element.$ready(true)
+  } ());
 
   return element
+}
+
+async function loadDepComponents(deps) {
+  const components = deps.filter(item => /^[a-z]+?:\/\//.test(item))
+  if (!components.length) {
+    return
+  }
+  await Promise.all(components.map((url) => {
+    return getComponentCode(url).then((code) => {
+      const script = createScriptByBlob(code)
+      script.setAttribute('sfc-src', url)
+      return insertScript(script)
+    })
+  }))
 }
