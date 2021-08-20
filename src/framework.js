@@ -51,7 +51,7 @@ class SFC_Element extends HTMLElement {
     const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
     const code = await getComponentCode(url)
-    console.log(code)
+    // console.log(code)
     const script = createScriptByBlob(code)
     script.setAttribute('sfc-src', url)
     this.absUrl = url
@@ -76,16 +76,21 @@ class SFC_Element extends HTMLElement {
 
 customElements.define('sfc-app', SFC_Element)
 
-
 const REACTIVE_SYMBOL = Symbol('reactive')
+const PROP_SYMBOL = Symbol('prop')
 const TEXT_NODE = Symbol('TextNode')
 const FRAGMENT_NODE = Symbol('Fragment')
+const SCHEDULE_TYPE = {
+  REACT: 'react',
+  RENDER: 'render',
+  DYE: 'dye',
+}
 
 class Neure {
   constructor({
     type,
     meta,
-    childrenGetter,
+    children,
 
     args,
 
@@ -112,7 +117,7 @@ class Neure {
     // 固定信息
     this.type = type
     this.meta = meta
-    this.childrenGetter = childrenGetter
+    this.children = children // 内部元素的获取函数
 
     this.node = node // DOM 节点
 
@@ -143,17 +148,21 @@ class Neure {
       return
     }
 
+    let el = node
+    let root = target
+
     if (isInstanceOf(node, Element)) {
-      // TODO
-      return
+      const fragment = document.createDocumentFragment()
+      node.mount(fragment)
+      el = fragment.children[0] // 要求组件内必须为一个顶级有效标签
     }
 
-    else if (isInstanceOf(target, Element)) {
-      // TODO
-      return
+    if (isInstanceOf(target, Element)) {
+      root = target.root
     }
 
-    target.appendChild(node)
+    root.appendChild(el)
+
     if (child) {
       child.mount(node)
     }
@@ -201,7 +210,7 @@ class Element {
 
   collector = new Set()
   mounted = false
-  root = null
+  root = null // 挂载到哪个DOM节点上
 
   queue = []
   schedule = []
@@ -232,7 +241,7 @@ class Element {
   }
 
   reactive(init, getter, setter) {
-    const value = init()
+    const [value, deps] = this.collect(() => init())
     const immut = createProxy(value, {
       writable: () => false,
       receive: (...args) => {
@@ -268,6 +277,12 @@ class Element {
       value: immut,
       getter,
       setter,
+    }
+
+    if (deps.length) {
+      each(deps, (dep) => {
+        this.schedule.push([SCHEDULE_TYPE.REACT, dep, react])
+      })
     }
 
     return react
@@ -346,6 +361,11 @@ class Element {
 
     this.root = el
     this.mounted = true
+
+    const { onMount } = context
+    if (onMount) {
+      onMount()
+    }
   }
 
   unmount() {
@@ -386,11 +406,11 @@ class Element {
       const events = eventsGetter ? eventsGetter(args) : {}
       const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
 
-      const node = this.createElement(type, { attrs, props, events })
+      const node = createNode(type, { attrs, props, events })
       const neure = new Neure({
         type,
         meta,
-        childrenGetter,
+        children: childrenGetter,
 
         node,
 
@@ -436,7 +456,7 @@ class Element {
         const neureList = new NeureFragment({
           type: FRAGMENT_NODE,
           meta,
-          childrenGetter,
+          children: childrenGetter,
 
           visible: true,
           args,
@@ -520,7 +540,7 @@ class Element {
 
     const records = []
     each(deps, (dep) => {
-      records.push([dep, neure])
+      records.push([SCHEDULE_TYPE.RENDER, dep, neure])
     })
     each(records, (record) => {
       if (!this.schedule.some(item => isShallowEqual(item, record))) {
@@ -531,24 +551,9 @@ class Element {
     return neure
   }
 
-  createElement(type, meta) {
-    const { props, attrs, events } = meta
-    if (isInstanceOf(type, Component)) {
-      const element = initComponent(type, { props, events })
-      return element
-    }
 
-    const node = document.createElement(type)
-    each(attrs, (value, key) => {
-      node.setAttribute(key, value)
-    })
-    each(events, (fn, key) => {
-      node.addEventListener(key, fn)
-    })
-    return node
-  }
 
-  update(meta = {}) {}
+
 
   r(name, ...args) {}
 }
@@ -572,7 +577,9 @@ function initComponent(absUrl, meta = {}) {
       ...modules,
       props: new Proxy({
         get(_, key) {
-          return element.props[key]
+          const value = element.props[key]
+          element.collector.add({ $$typeof: PROP_SYMBOL, getter: () => element.props[key], value })
+          return value
         },
       }),
       emit: (event, ...args) => {
@@ -620,3 +627,22 @@ async function loadDepComponents(deps) {
     })
   }))
 }
+
+function createNode(type, meta) {
+  const { props, attrs, events } = meta
+  if (isInstanceOf(type, Component)) {
+    const element = initComponent(type, { props, events })
+    return element
+  }
+
+  const node = document.createElement(type)
+  each(attrs, (value, key) => {
+    node.setAttribute(key, value)
+  })
+  each(events, (fn, key) => {
+    node.addEventListener(key, fn)
+  })
+  return node
+}
+
+function updateElement(element, meta = {}) {}
