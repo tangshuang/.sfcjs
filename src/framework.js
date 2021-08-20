@@ -121,6 +121,10 @@ class Neure {
     this.parent = parent // 父节点
   }
 
+  set(data) {
+    Object.assign(this, data)
+  }
+
   mount(target) {
     const { node, child, visible } = this
 
@@ -169,17 +173,17 @@ class Neure {
   }
 }
 
-class NeureList extends Neure {
+class NeureFragment extends Neure {
   setList(getter) {
-    this.getter = getter
-
     const neures = getter()
     each(neures, (neure) => {
       neure.parent = this
     })
 
+    this.getter = getter
     this.child = neures[0] || null
     this.list = neures
+    this.determine = null // 函数，用于决定是否需要更新
   }
 
   mount(target) {
@@ -192,12 +196,14 @@ class NeureList extends Neure {
 }
 
 class Element {
-  props = null
-  context = null
+  props = null // 外部传入的props
+  context = null // 内部返回的结果
+
   collector = new Set()
   mounted = false
-  queue = []
   root = null
+
+  queue = []
   schedule = []
 
   constructor() {
@@ -211,6 +217,18 @@ class Element {
       this.__ready()
     }
     return this._ready
+  }
+
+  collect(fn) {
+    const { collector } = this
+    const originCollector = new Set([...collector])
+    collector.clear()
+
+    const res = fn()
+
+    const deps = [...collector]
+    this.collector = originCollector
+    return [res, deps]
   }
 
   reactive(init, getter, setter) {
@@ -293,7 +311,8 @@ class Element {
         const { getter } = item
         const newValue = getter()
         if (item !== newValue) {
-          this.queueUpdate(item)
+          this.queue.push(item)
+          this.queueUpdate()
         }
       })
 
@@ -303,8 +322,13 @@ class Element {
     this._scheduleUpdating = true
   }
 
-  queueUpdate(react) {
+  queueUpdate() {
     const { context, queue } = this
+
+    if (!queue.length) {
+      return
+    }
+
     const { onUpdate } = context
     if (onUpdate) {
       onUpdate()
@@ -316,12 +340,9 @@ class Element {
     const { render, style } = context
 
     const css = style()
+
     const neure = render()
-
-    const fragment = document.createDocumentFragment()
-    neure.mount(fragment)
-
-    console.log(neure, fragment)
+    neure.mount(el)
 
     this.root = el
     this.mounted = true
@@ -338,17 +359,6 @@ class Element {
     this.root = null
   }
 
-  collect(fn) {
-    const { collector } = this
-    const originCollector = new Set([...collector])
-    collector.clear()
-
-    const res = fn()
-
-    const deps = [...collector]
-    this.collector = originCollector
-    return [res, deps]
-  }
 
   h(type, meta, childrenGetter) {
     if (typeof meta === 'function') {
@@ -423,7 +433,7 @@ class Element {
           })
           return neures
         }
-        const neureList = new NeureList({
+        const neureList = new NeureFragment({
           type: FRAGMENT_NODE,
           meta,
           childrenGetter,
@@ -501,7 +511,7 @@ class Element {
       }
     }
 
-    if (isInstanceOf(neure, NeureList)) {
+    if (isInstanceOf(neure, NeureFragment)) {
       each(neure.list, genChildren)
     }
     else {
@@ -538,7 +548,7 @@ class Element {
     return node
   }
 
-  updateElement(el, meta) {}
+  update(meta = {}) {}
 
   r(name, ...args) {}
 }
@@ -554,11 +564,17 @@ function initComponent(absUrl, meta = {}) {
     }
 
     const { deps, fn } = component
-    const { props = {}, events = {} } = meta
     await loadDepComponents(deps)
+
+    const { props = {}, events = {} } = meta
+    element.props = props
     const scope = {
       ...modules,
-      props,
+      props: new Proxy({
+        get(_, key) {
+          return element.props[key]
+        },
+      }),
       emit: (event, ...args) => {
         const callback = events[event]
         if (!callback) {
@@ -570,7 +586,14 @@ function initComponent(absUrl, meta = {}) {
     }
     const vars = deps.map(dep => scope[dep])
 
-    const context = await Promise.resolve(fn.call(element, ...vars))
+    const inside = Object.freeze({
+      h: element.h.bind(element),
+      r: element.r.bind(element),
+      reactive: element.reactive.bind(element),
+      consume: element.consume.bind(element),
+    })
+
+    const context = await Promise.resolve(fn.call(inside, ...vars))
     element.context = context
 
     const { onInit } = context
