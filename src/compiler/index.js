@@ -44,7 +44,7 @@ export function genComponent({ imports = [], deps = [], jsCode, cssCode, htmlCod
     'const SFC = this',
     jsCode,
     'return {',
-    cssCode ? `style:${cssCode},` : '',
+    cssCode ? `dye:${cssCode},` : '',
     `render:${htmlCode || `() => null`}`,
     '}',
     '});',

@@ -3,7 +3,7 @@ import { getComponentCode } from './main'
 import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual, isString, isInstanceOf, decideby } from 'ts-fns'
 import produce from 'immer'
 
-const modules = {}
+const components = {}
 
 class Component {
   constructor({ url, deps, fn }) {
@@ -14,67 +14,35 @@ class Component {
 }
 
 export function define(absUrl, deps, fn) {
-  if (modules[absUrl]) {
+  if (components[absUrl]) {
     return
   }
 
-  const mod = modules[absUrl] = new Component({
+  const component = components[absUrl] = new Component({
     url: absUrl,
     deps,
     fn,
   })
 
   const depComponents = deps.filter(item => item[0] === '.')
+
   if (!depComponents.length) {
-    return
+    return component
   }
+
   each(depComponents, (dep) => {
     const url = resolveUrl(absUrl, dep)
-    // 必须转化为绝对路径才能从modules上读取
-    mod.deps.forEach((item, i) => {
+    // 必须转化为绝对路径才能从component上读取
+    component.deps.forEach((item, i) => {
       if (item === dep) {
-        mod.deps[i] = url
+        component.deps[i] = url
       }
     })
   })
+  return component
 }
 
-class SFC_Element extends HTMLElement {
-  constructor() {
-    super()
-    this.attachShadow({ mode: 'open' })
-    this.rootElement = null
-  }
-
-  async connectedCallback() {
-    const src = this.getAttribute('src')
-    const baseUrl = window.location.href
-    const url = resolveUrl(baseUrl, src)
-    const code = await getComponentCode(url)
-    // console.log(code)
-    const script = createScriptByBlob(code)
-    script.setAttribute('sfc-src', url)
-    this.absUrl = url
-    await insertScript(script)
-    this.setup()
-  }
-
-  async setup() {
-    const { absUrl } = this
-    const element = initComponent(absUrl)
-    this.rootElement = element
-    await element.$ready()
-    element.mount(this.shadowRoot)
-  }
-
-  disconnectedCallback() {
-    if (this.rootElement) {
-      this.rootElement.unmount()
-    }
-  }
-}
-
-customElements.define('sfc-app', SFC_Element)
+// ---------------------------------------------
 
 const REACTIVE_SYMBOL = Symbol('reactive')
 const PROP_SYMBOL = Symbol('prop')
@@ -87,122 +55,95 @@ const SCHEDULE_TYPE = {
 }
 
 class Neure {
-  constructor({
-    type,
-    meta,
-    children,
+  // 固定信息
+  type = null
+  meta = null
+  children = null // 内部元素的获取函数
+  // 实时信息，当前状态，用于下一次渲染
+  key = null
+  visible = true
+  keepAlive = null
+  attrs = null
+  props = null
+  events = null
+  // 记录内函数的参数
+  args = null
+  // DOM 节点
+  node = null
+  // 链表关系
+  child = null // 第一个字节点
+  sibling = null // 第一个兄弟节点
+  parent = null // 父节点
+  // 记录依赖
+  // 依赖分为两种，一种是meta的依赖，一种是children的依赖，两种依赖发生变化时，要更新的地方不同
+  deps = {
+    meta: null,
+    children: null,
+    fragment: null,
+  }
 
-    args,
-
-    node,
-    parent,
-
-    key,
-    visible,
-    keepAlive,
-    attrs,
-    props,
-    events,
-  }) {
-    // 实时信息，当前状态，用于下一次渲染
-    this.key = key
-    this.visible = visible
-    this.keepAlive = keepAlive
-    this.attrs = attrs
-    this.props = props
-    this.events = events
-
-    this.args = args // 记录meta内函数的参数
-
-    // 固定信息
-    this.type = type
-    this.meta = meta
-    this.children = children // 内部元素的获取函数
-
-    this.node = node // DOM 节点
-
-    this.child = null // 第一个字节点
-    this.sibling = null // 第一个兄弟节点
-    this.parent = parent // 父节点
+  constructor(data = {}) {
+    this.set(data)
   }
 
   set(data) {
     Object.assign(this, data)
   }
 
-  mount(target) {
-    const { node, child, visible } = this
+  // async mount(root) {
+  //   const { node, child, visible } = this
 
-    if (!target) {
-      this.next()
-      return
-    }
+  //   if (!visible) {
+  //     await this.next()
+  //     return
+  //   }
 
-    if (!node) {
-      this.next()
-      return
-    }
+  //   root.appendChild(node)
 
-    if (!visible) {
-      this.next()
-      return
-    }
+  //   if (child) {
+  //     await child.mount(node)
+  //   }
+  //   else {
+  //     await this.next()
+  //   }
+  // }
 
-    let el = node
-    let root = target
-
-    if (isInstanceOf(node, Element)) {
-      const fragment = document.createDocumentFragment()
-      node.mount(fragment)
-      el = fragment.children[0] // 要求组件内必须为一个顶级有效标签
-    }
-
-    if (isInstanceOf(target, Element)) {
-      root = target.root
-    }
-
-    root.appendChild(el)
-
-    if (child) {
-      child.mount(node)
-    }
-    else {
-      this.next()
-    }
-  }
-
-  next() {
-    const { sibling, parent } = this
-    if (sibling) {
-      sibling.mount(parent.node)
-    }
-    else {
-      parent?.next()
-    }
-  }
+  // async next() {
+  //   const { sibling, parent } = this
+  //   if (sibling) {
+  //     await sibling.mount(parent.node)
+  //   }
+  //   else {
+  //     await parent?.next()
+  //   }
+  // }
 }
 
 class NeureFragment extends Neure {
-  setList(getter) {
-    const neures = getter()
+  contents = null // fragment内部的内容
+  getter = null // 用于获取contents的函数
+
+  visible = true
+
+  setContents(getter) {
+    const neures = getter ? getter() : this.getter()
     each(neures, (neure) => {
       neure.parent = this
     })
 
     this.getter = getter
     this.child = neures[0] || null
-    this.list = neures
-    this.determine = null // 函数，用于决定是否需要更新
+    this.contents = neures
   }
 
-  mount(target) {
-    const { list } = this
-    each(list, (item) => {
-      item.mount(target)
-    })
-    this.next()
-  }
+  // async mount(target) {
+  //   const { contents } = this
+  //   await Promise.all(contents.map(item => item.mount(target)))
+  //   await this.next()
+  // }
 }
+
+// ---------------------------------------------
 
 class Element {
   props = null // 外部传入的props
@@ -210,15 +151,19 @@ class Element {
 
   collector = new Set()
   mounted = false
-  root = null // 挂载到哪个DOM节点上
+
+  // 用于渲染的素材
+  neure = null // 最顶级的Neure实例
+  gamut = null // 样式记录
 
   queue = []
   schedule = []
 
-  constructor() {
+  constructor(props) {
     this._ready = new Promise((resolve) => {
       this.__ready = resolve
     })
+    this.props = Object.freeze(props)
   }
 
   $ready(resolved) {
@@ -317,7 +262,6 @@ class Element {
       }
 
       if (!collector.size) {
-        collector.clear()
         return
       }
 
@@ -344,31 +288,30 @@ class Element {
       return
     }
 
+    // TODO
+
     const { onUpdate } = context
     if (onUpdate) {
       onUpdate()
     }
   }
 
-  mount(el) {
-    const { context } = this
-    const { render, style } = context
+  async setup() {
+    await this.$ready()
 
-    const css = style()
+    const { context } = this
+    const { render, dye } = context
+
+    if (dye) {
+      const gamut = dye()
+      this.gamut = gamut
+    }
 
     const neure = render()
-    neure.mount(el)
-
-    this.root = el
-    this.mounted = true
-
-    const { onMount } = context
-    if (onMount) {
-      onMount()
-    }
+    this.neure = neure
   }
 
-  unmount() {
+  destroy() {
     this.mounted = false
     this.props = null
     this.context = null
@@ -379,65 +322,27 @@ class Element {
     this.root = null
   }
 
-
   h(type, meta, childrenGetter) {
     if (typeof meta === 'function') {
       childrenGetter = meta
       meta = {}
     }
 
+    const initNeure = (meta, args) => {
+      const { repeat: repeatGetter } = meta
 
-    const deps = []
-
-    const createNeureNode = (meta, args) => {
-      const {
-        visible: visibleGetter,
-        key: keyGetter,
-        attrs: attrsGetter,
-        props: propsGetter,
-        events: eventsGetter,
-        keepAlive: keepAliveGetter,
-      } = meta
-
-      const key = keyGetter ? keyGetter(args) : null
-      const visible = visibleGetter ? visibleGetter(args) : true
-      const attrs = attrsGetter ? attrsGetter(args) : {}
-      const props = propsGetter ? propsGetter(args) : {}
-      const events = eventsGetter ? eventsGetter(args) : {}
-      const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
-
-      const node = createNode(type, { attrs, props, events })
-      const neure = new Neure({
-        type,
-        meta,
-        children: childrenGetter,
-
-        node,
-
-        key,
-        visible,
-        keepAlive,
-        attrs,
-        props,
-        events,
-      })
-
-      if (args) {
-        neure.args = args
-      }
-
-      return neure
-    }
-
-    const createNeure = (meta, args) => {
-      const {
-        repeat: repeatGetter,
-      } = meta
       if (repeatGetter) {
-        const getter = () => {
+        const neureList = new NeureFragment({
+          type: FRAGMENT_NODE,
+          meta,
+          children: childrenGetter,
+          args,
+        })
+        neureList.setContents(() => {
           const neures = []
           const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-          deps.push(...repeatDeps)
+          neureList.deps.fragment = repeatDeps
+
           each(items, (item, index) => {
             const args = {
               [itemKey]: item,
@@ -445,41 +350,33 @@ class Element {
             }
 
             const { repeat, ...others } = meta
-            const neure = createNeure(others, args)
+            const neure = initNeure(others, args)
             if (neures.length) {
               neures[neures.length - 1].sibling = neure
             }
             neures.push(neure)
           })
           return neures
-        }
-        const neureList = new NeureFragment({
-          type: FRAGMENT_NODE,
-          meta,
-          children: childrenGetter,
-
-          visible: true,
-          args,
         })
-        neureList.setList(getter)
         return neureList
       }
-      else {
-        return createNeureNode(meta, args)
-      }
+
+      const neure = createNeure(type, meta, childrenGetter, args)
+      return neure
     }
 
-    const [neure, neureDeps] = this.collect(() => createNeure(meta))
-    deps.push(...neureDeps)
+    const [neure, metaDeps] = this.collect(() => initNeure(meta))
+    neure.deps.meta = metaDeps
 
     let current = null
     const setTextNode = (text, parent) => {
       const node = new Neure({
         type: TEXT_NODE,
-        node: document.createTextNode(text),
         parent,
-        visible: true,
       })
+
+      node.text = text
+
       if (current) {
         current.sibling = node
       }
@@ -500,18 +397,17 @@ class Element {
     }
 
     const genChildren = (neure) => {
-      const { visible, childrenGetter, args } = neure
+      const { visible, children, args } = neure
       if (!visible) {
         return
       }
 
-      if (!childrenGetter) {
+      if (!children) {
         return
       }
 
-      const [sub, childrenDeps] = this.collect(() => childrenGetter(args))
-
-      deps.push(...childrenDeps)
+      const [sub, childrenDeps] = this.collect(() => children(args))
+      neure.deps.children = childrenDeps
 
       if (isString(sub)) {
         setTextNode(sub, neure)
@@ -532,37 +428,30 @@ class Element {
     }
 
     if (isInstanceOf(neure, NeureFragment)) {
-      each(neure.list, genChildren)
+      each(neure.contents, genChildren)
     }
     else {
       genChildren(neure)
     }
 
-    const records = []
-    each(deps, (dep) => {
-      records.push([SCHEDULE_TYPE.RENDER, dep, neure])
-    })
-    each(records, (record) => {
-      if (!this.schedule.some(item => isShallowEqual(item, record))) {
-        this.schedule.push(record)
-      }
-    })
+    // this.schedule.push({
+    //   type: SCHEDULE_TYPE.RENDER,
+    //   ...neure.deps,
+    //   neure,
+    // })
 
     return neure
   }
 
-
-
-
-
   r(name, ...args) {}
 }
 
-function initComponent(absUrl, meta = {}) {
-  const element = new Element()
+export function initComponent(absUrl, meta = {}) {
+  const { props = {} } = meta
+  const element = new Element(props)
 
   ;(async function() {
-    const component = isInstanceOf(absUrl, Component) ? absUrl : modules[absUrl]
+    const component = isInstanceOf(absUrl, Component) ? absUrl : components[absUrl]
 
     if (!component) {
       throw new Error(`${absUrl} 组件尚未加载`)
@@ -571,14 +460,13 @@ function initComponent(absUrl, meta = {}) {
     const { deps, fn } = component
     await loadDepComponents(deps)
 
-    const { props = {}, events = {} } = meta
-    element.props = props
+    const { events = {} } = meta
     const scope = {
-      ...modules,
-      props: new Proxy({
-        get(_, key) {
-          const value = element.props[key]
-          element.collector.add({ $$typeof: PROP_SYMBOL, getter: () => element.props[key], value })
+      ...components,
+      props: new Proxy(element.props, {
+        get(props, key) {
+          const value = props[key]
+          element.collector.add({ $$typeof: PROP_SYMBOL, getter: () => props[key], value })
           return value
         },
       }),
@@ -587,7 +475,6 @@ function initComponent(absUrl, meta = {}) {
         if (!callback) {
           return
         }
-
         return callback(...args)
       },
     }
@@ -628,10 +515,51 @@ async function loadDepComponents(deps) {
   }))
 }
 
+function createNeure(type, meta, children, args) {
+  const {
+    visible: visibleGetter,
+    key: keyGetter,
+    attrs: attrsGetter,
+    props: propsGetter,
+    events: eventsGetter,
+    keepAlive: keepAliveGetter,
+  } = meta
+
+  const key = keyGetter ? keyGetter(args) : null
+  const visible = visibleGetter ? visibleGetter(args) : true
+  const attrs = attrsGetter ? attrsGetter(args) : {}
+  const props = propsGetter ? propsGetter(args) : {}
+  const events = eventsGetter ? eventsGetter(args) : {}
+  const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
+
+  const neure = new Neure({
+    type,
+    meta,
+    children,
+
+    args,
+
+    key,
+    visible,
+    keepAlive,
+    attrs,
+    props,
+    events,
+  })
+
+  if (isInstanceOf(type, Component)) {
+    const element = initComponent(type, props)
+    neure.set({ element })
+  }
+
+  return neure
+}
+
 function createNode(type, meta) {
   const { props, attrs, events } = meta
   if (isInstanceOf(type, Component)) {
     const element = initComponent(type, { props, events })
+    // TODO
     return element
   }
 

@@ -1,2 +1,2 @@
 import './main'
-export * from './framework'
+export { define } from './framework'

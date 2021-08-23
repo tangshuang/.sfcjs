@@ -1,4 +1,5 @@
-import { resolveUrl, randomString, createBlobUrl } from './utils'
+import { resolveUrl, randomString, createBlobUrl, createScriptByBlob, insertScript } from './utils'
+import { initComponent } from './framework'
 
 const { currentScript } = document
 const { src } = currentScript
@@ -45,3 +46,43 @@ export function getComponentCode(src) {
     }, 5000)
   })
 }
+
+class SFC_Element extends HTMLElement {
+  constructor() {
+    super()
+    this.attachShadow({ mode: 'open' })
+    this.rootElement = null
+  }
+
+  async connectedCallback() {
+    const src = this.getAttribute('src')
+    const baseUrl = window.location.href
+    const url = resolveUrl(baseUrl, src)
+    const code = await getComponentCode(url)
+    // console.log(code)
+    const script = createScriptByBlob(code)
+    script.setAttribute('sfc-src', url)
+    this.absUrl = url
+    await insertScript(script)
+
+    if (this.getAttribute('auto')) {
+      this.setup()
+    }
+  }
+
+  async setup(meta) {
+    const { absUrl } = this
+    const element = initComponent(absUrl, meta)
+    this.rootElement = element
+    await element.setup()
+    console.log(element.neure)
+  }
+
+  disconnectedCallback() {
+    if (this.rootElement) {
+      this.rootElement.unmount()
+    }
+  }
+}
+
+customElements.define('sfc-app', SFC_Element)
