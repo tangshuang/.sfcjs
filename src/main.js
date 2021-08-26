@@ -59,23 +59,25 @@ class SFC_Element extends HTMLElement {
     const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
     const code = await getComponentCode(url)
-    console.log(code)
+    // console.log(code)
     const script = createScriptByBlob(code)
     script.setAttribute('sfc-src', url)
     this.absUrl = url
     await insertScript(script)
 
     if (this.getAttribute('auto')) {
-      this.setup()
+      this.mount()
     }
   }
 
-  async setup(meta) {
+  async mount(meta) {
     const { absUrl } = this
     const element = initComponent(absUrl, meta)
     this.rootElement = element
     await element.$ready()
+    await element.setup()
     await element.mount(this.shadowRoot)
+    console.log(element)
   }
 
   disconnectedCallback() {

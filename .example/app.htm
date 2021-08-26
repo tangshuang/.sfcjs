@@ -88,16 +88,16 @@
 </style>
 
 <div class="app-{{name}}">
-  <span>name: {{name}}</span>
-  <span
+  <div>name: {{name}}</div>
+  <div
     class="age"
     :class="'age-' + age"
     :style="age / 3 > 10 ? 'color: red;' : undefined"
     (if)="age > 10"
-  >{{age}}</span>
-  <span (repeat)="color,index of colors" (if)="!!color" (key)="color">
+  >{{age}}</div>
+  <div (repeat)="color,index of colors" (if)="!!color" (key)="color">
     <i>{{index}}: {{color}}</i>
-  </span>
+  </div>
   <button @click="grow(event)">grow</button>
   <some-component
     :title="'xxx'"

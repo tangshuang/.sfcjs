@@ -49,7 +49,7 @@ const PROP_SYMBOL = Symbol('prop')
 const TEXT_NODE = Symbol('TextNode')
 const FRAGMENT_NODE = Symbol('Fragment')
 const SCHEDULE_TYPE = {
-  REACT: 'react',
+  VAR: 'var',
   RENDER: 'render',
   DYE: 'dye',
 }
@@ -90,37 +90,10 @@ class Neure {
   set(data) {
     Object.assign(this, data)
   }
-
-  // async mount(root) {
-  //   const { node, child, visible } = this
-
-  //   if (!visible) {
-  //     await this.next()
-  //     return
-  //   }
-
-  //   root.appendChild(node)
-
-  //   if (child) {
-  //     await child.mount(node)
-  //   }
-  //   else {
-  //     await this.next()
-  //   }
-  // }
-
-  // async next() {
-  //   const { sibling, parent } = this
-  //   if (sibling) {
-  //     await sibling.mount(parent.node)
-  //   }
-  //   else {
-  //     await parent?.next()
-  //   }
-  // }
 }
 
 class NeureFragment extends Neure {
+  backer = null // 记录前一个neure
   contents = null // fragment内部的内容
   getter = null // 用于获取contents的函数
 
@@ -155,9 +128,9 @@ class Element {
   root = null // 被挂载到的DOM节点
 
   // 用于渲染的素材
+  slot = null
   neure = null // 最顶级的Neure实例
   brushes = null // 样式记录
-  node = null // 生成的DOM元素
 
   queue = []
   schedule = []
@@ -228,8 +201,10 @@ class Element {
     }
 
     if (deps.length) {
-      each(deps, (dep) => {
-        this.schedule.push([SCHEDULE_TYPE.REACT, dep, react])
+      this.schedule.push({
+        type: SCHEDULE_TYPE.VAR,
+        deps,
+        var: react,
       })
     }
 
@@ -256,15 +231,18 @@ class Element {
     if (this._scheduleUpdating) {
       return
     }
+    this._scheduleUpdating = true
     requestAnimationFrame(() => {
       const { collector, mounted } = this
 
       if (!mounted) {
         collector.clear()
+        this._scheduleUpdating = false
         return
       }
 
       if (!collector.size) {
+        this._scheduleUpdating = false
         return
       }
 
@@ -281,7 +259,6 @@ class Element {
       collector.clear()
       this._scheduleUpdating = false
     })
-    this._scheduleUpdating = true
   }
 
   queueUpdate() {
@@ -291,6 +268,7 @@ class Element {
       return
     }
 
+    console.log(queue)
     // TODO
 
     const { onUpdate } = context
@@ -299,65 +277,55 @@ class Element {
     }
   }
 
-  // should must run after init
-  async setup() {
-    const { context } = this
-    const { render, dye, onCreate } = context
-
-    if (dye) {
-      const brushes = dye()
-      this.brushes = brushes
-    }
-
-    const neure = render()
-    this.neure = neure
-
-    if (onCreate) {
-      onCreate()
-    }
-  }
-
   // should must run after setup
   async mount(el) {
     const { onMount } = this.context
-    const { neure } = this
 
     const mountNeure = async (neure, root) => {
-      const { type, attrs, events, element, child, sibling, text } = neure
-      let current = null
-      if (isInstanceOf(type, Component)) {
-        await element.$ready()
-        await element.mount(root) // TODO 处理slot
-        current = element.root // TODO 遇到fragment怎么办？
-      }
-      else if (type === FRAGMENT_NODE) {
-        // TODO
-      }
-      else if (type === TEXT_NODE) {
-        const node = document.createTextNode(text)
-        root.appendChild(node)
-        neure.node = node
-        neure.parentNode = root
-      }
-      else {
-        const node = document.createElement(type)
-        each(attrs, (value, key) => {
-          node.setAttribute(key, value)
-        })
-        each(events, (fn, key) => {
-          console.log(fn)
-          node.addEventListener(key, fn)
-        })
+      const { type, attrs, events, element, child, sibling, text, visible } = neure
 
-        root.appendChild(node)
-        neure.node = node
-        neure.parentNode = root
-        current = node
-      }
+      if (visible) {
+        let current = null
 
-      if (current) {
-        if (child) {
-          await mountNeure(child, current)
+        if (isInstanceOf(type, Component)) {
+          await element.$ready()
+          await element.setup(child)
+          await element.mount(root)
+        }
+        else if (type === FRAGMENT_NODE) {
+          if (child) {
+            await mountNeure(child, root)
+          }
+        }
+        else if (type === TEXT_NODE) {
+          const node = document.createTextNode(text)
+          root.appendChild(node)
+          neure.node = node
+          neure.parentNode = root
+        }
+        else if (type === 'slot') {
+          const { slot } = this
+          // TODO
+        }
+        else {
+          const node = document.createElement(type)
+          each(attrs, (value, key) => {
+            node.setAttribute(key, value)
+          })
+          each(events, (fn, key) => {
+            node.addEventListener(key, fn)
+          })
+
+          root.appendChild(node)
+          neure.node = node
+          neure.parentNode = root
+          current = node
+        }
+
+        if (current) {
+          if (child) {
+            await mountNeure(child, current)
+          }
         }
       }
 
@@ -390,6 +358,25 @@ class Element {
     this.root = null
   }
 
+  // should must run after ready()
+  async setup(slot) {
+    const { context } = this
+    const { render, dye, onCreate } = context
+
+    if (dye) {
+      const brushes = dye()
+      this.brushes = brushes
+    }
+
+    this.slot = slot
+    const neure = render()
+    this.neure = neure
+
+    if (onCreate) {
+      onCreate()
+    }
+  }
+
   h(type, meta, childrenGetter) {
     if (typeof meta === 'function') {
       childrenGetter = meta
@@ -410,6 +397,7 @@ class Element {
           const neures = []
           const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
           neureList.deps.fragment = repeatDeps
+          neureList.repeat = items
 
           each(items, (item, index) => {
             const args = {
@@ -436,8 +424,7 @@ class Element {
     const [neure, metaDeps] = this.collect(() => initNeure(meta))
     neure.deps.meta = metaDeps
 
-    let current = null
-    const setTextNode = (text, parent) => {
+    const setTextNode = (text, parent, backer) => {
       const node = new Neure({
         type: TEXT_NODE,
         parent,
@@ -445,23 +432,23 @@ class Element {
 
       node.text = text
 
-      if (current) {
-        current.sibling = node
+      if (backer) {
+        backer.sibling = node
       }
       if (!parent.child) {
         parent.child = node
       }
-      current = node
+      node.backer = backer
     }
-    const setNeureNode = (node, parent) => {
+    const setNeureNode = (node, parent, backer) => {
       node.parent = parent
-      if (current) {
-        current.sibling = node
+      if (backer) {
+        backer.sibling = node
       }
       if (!parent.child) {
         parent.child = node
       }
-      current = node
+      node.backer = backer
     }
 
     const genChildren = (neure) => {
@@ -484,14 +471,15 @@ class Element {
         setNeureNode(sub, neure)
       }
       else if (isArray(sub)) {
-        each(sub, (item) => {
+        sub.reduce((backer, item) => {
           if (isInstanceOf(item, Neure)) {
-            setNeureNode(item, neure)
+            setNeureNode(item, neure, backer)
           }
           else if (isString(item)) {
-            setTextNode(item, neure)
+            setTextNode(item, neure, backer)
           }
-        })
+          return item
+        }, null)
       }
     }
 
@@ -502,11 +490,16 @@ class Element {
       genChildren(neure)
     }
 
-    // this.schedule.push({
-    //   type: SCHEDULE_TYPE.RENDER,
-    //   ...neure.deps,
-    //   neure,
-    // })
+    if (
+      (neure.deps.meta && neure.deps.meta.length)
+      || (neure.deps.children && neure.deps.children.length)
+      || (neure.deps.fragment && neure.deps.fragment.length)
+    )
+    this.schedule.push({
+      type: SCHEDULE_TYPE.RENDER,
+      ...neure.deps,
+      neure,
+    })
 
     return neure
   }
@@ -562,8 +555,6 @@ export function initComponent(absUrl, meta = {}) {
     if (onInit) {
       onInit()
     }
-
-    await element.setup()
 
     element.$ready(true)
   } ());
