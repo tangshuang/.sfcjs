@@ -1,9 +1,13 @@
-import { parseHtmlToAst, traverseAst as traverseHtmlAst } from 'abs-html'
-import { each, camelcase } from '../utils'
+import {
+  parseHtmlToAst,
+  // traverseAst as traverseHtmlAst,
+} from 'abs-html'
+import { each, camelcase, clearHtml } from '../utils'
 import { tokenize } from './js-parser'
 
 export function parseHtml(sourceCode, components, givenVars) {
-  const htmlAst = parseHtmlToAst(sourceCode.trim())
+  const html = clearHtml(sourceCode.trim())
+  const htmlAst = parseHtmlToAst(html)
 
   const consumeVars = (code, vars = {}) => {
     const tokens = tokenize(code)
@@ -18,17 +22,25 @@ export function parseHtml(sourceCode, components, givenVars) {
   }
 
   let code = 'function() {return '
-  traverseHtmlAst(htmlAst, {
-    '*': {
-      enter(node, parent) {
-        // 去掉所有换行逻辑
-        if (typeof node === 'string' && /\n\s*/.test(node)) {
-          const index = parent.indexOf(node)
-          parent.splice(index, 1)
-        }
-      },
-    },
-  })
+
+  // DROP 通过clearHtml解决了
+  // traverseHtmlAst(htmlAst, {
+  //   '[[String]]': {
+  //     enter(node, parent, index) {
+  //       if (!parent) {
+  //         return
+  //       }
+  //       // 去掉所有换行逻辑
+  //       if (/^\n[\s\n]*$/.test(node)) {
+  //         parent.splice(index, 1)
+  //       }
+  //       else if (/^\n.*?\n$/.test(node)) {
+  //         const str = node.substring(1, node.length - 1)
+  //         parent[index] = str
+  //       }
+  //     },
+  //   },
+  // })
 
   const interpolate = (str) => {
     const res = str.replace(/{{(.*?)}}/g, (_, $1) => {
@@ -60,7 +72,7 @@ export function parseHtml(sourceCode, components, givenVars) {
       else if (key.indexOf('@') === 0) {
         const k = key.substr(1)
         const v = createValue()
-        events.push([k, `event => ${v}`])
+        events.push([k, `event => {${value}}`])
       }
       else if (/^\(.*?\)$/.test(key)) {
         const k = key.substring(1, key.length - 1)

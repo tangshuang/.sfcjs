@@ -3,8 +3,6 @@
   import emit from 'sfc:emit'
   import { each } from '../src/utils.js'
 
-  const props = await import('sfc:props')
-
   let name = 'app_name'
   let age = 10
 
@@ -90,8 +88,7 @@
 </style>
 
 <div class="app-{{name}}">
-  <h3>titie: {{props.title}}</h3>
-  <span>{{name}}:</span>
+  <span>name: {{name}}</span>
   <span
     class="age"
     :class="'age-' + age"
@@ -103,7 +100,7 @@
   </span>
   <button @click="grow(event)">grow</button>
   <some-component
-    name="xxx"
+    :title="'xxx'"
     :some-attr="age * 5 > 10 ? 'ok' : undefined"
   ></some-component>
 </div>

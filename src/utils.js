@@ -19,6 +19,10 @@ export function clearComments(str) {
   return str.replace(/\/\*.*?\*\//gmi, '').replace(/\/\/.*?[\n$]/, '')
 }
 
+export function clearHtml(str) {
+  return str.replace(/>[\n\s]+?</gmi, '><').replace(/>\n+?([\w\W]+?)\n+?</gmi, '>$1<')
+}
+
 export function padding(count) {
   return new Array(count).fill(' ').join('')
 }

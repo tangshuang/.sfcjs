@@ -70,6 +70,7 @@ class Neure {
   args = null
   // DOM 节点
   node = null
+  parentNode = null
   // 链表关系
   child = null // 第一个字节点
   sibling = null // 第一个兄弟节点
@@ -298,11 +299,10 @@ class Element {
     }
   }
 
+  // should must run after init
   async setup() {
-    await this.$ready()
-
     const { context } = this
-    const { render, dye } = context
+    const { render, dye, onCreate } = context
 
     if (dye) {
       const brushes = dye()
@@ -311,48 +311,69 @@ class Element {
 
     const neure = render()
     this.neure = neure
-  }
-
-  async create() {
-    const { onCreate } = this.context
-    const { type, props, attrs, events } = this.neure
-
-    if (isInstanceOf(type, Component)) {
-      const element = initComponent(type, { props, events })
-      await element.$ready()
-      const node = await element.create()
-      return node
-    }
-
-    const node = document.createElement(type)
-    each(attrs, (value, key) => {
-      node.setAttribute(key, value)
-    })
-    each(events, (fn, key) => {
-      node.addEventListener(key, fn)
-    })
-
-    this.node = node
-
-    // TODO 创建css
 
     if (onCreate) {
       onCreate()
     }
-
-    return node
   }
 
+  // should must run after setup
   async mount(el) {
-    const node = this.node
+    const { onMount } = this.context
+    const { neure } = this
 
-    el.innerHTML = ''
-    el.appendChild(node)
+    const mountNeure = async (neure, root) => {
+      const { type, attrs, events, element, child, sibling, text } = neure
+      let current = null
+      if (isInstanceOf(type, Component)) {
+        await element.$ready()
+        await element.mount(root) // TODO 处理slot
+        current = element.root // TODO 遇到fragment怎么办？
+      }
+      else if (type === FRAGMENT_NODE) {
+        // TODO
+      }
+      else if (type === TEXT_NODE) {
+        const node = document.createTextNode(text)
+        root.appendChild(node)
+        neure.node = node
+        neure.parentNode = root
+      }
+      else {
+        const node = document.createElement(type)
+        each(attrs, (value, key) => {
+          node.setAttribute(key, value)
+        })
+        each(events, (fn, key) => {
+          console.log(fn)
+          node.addEventListener(key, fn)
+        })
+
+        root.appendChild(node)
+        neure.node = node
+        neure.parentNode = root
+        current = node
+      }
+
+      if (current) {
+        if (child) {
+          await mountNeure(child, current)
+        }
+      }
+
+      if (sibling) {
+        await mountNeure(sibling, root)
+      }
+    }
+
+    await mountNeure(this.neure, el)
+
+    // TODO 创建css
+    // TODO 挂载style
 
     this.root = el
     this.mounted = true
 
-    const { onMount } = this.context
     if (onMount) {
       onMount()
     }
@@ -375,7 +396,7 @@ class Element {
       meta = {}
     }
 
-    const initNeure = (meta, args) => {
+    const initNeure = (meta = {}, args) => {
       const { repeat: repeatGetter } = meta
 
       if (repeatGetter) {
@@ -542,6 +563,8 @@ export function initComponent(absUrl, meta = {}) {
       onInit()
     }
 
+    await element.setup()
+
     element.$ready(true)
   } ());
 
@@ -595,29 +618,11 @@ function createNeure(type, meta, children, args) {
   })
 
   if (isInstanceOf(type, Component)) {
-    const element = initComponent(type, props)
+    const element = initComponent(type, { props, events })
     neure.set({ element })
   }
 
   return neure
-}
-
-async function createNode(type, meta) {
-  const { props, attrs, events } = meta
-  if (isInstanceOf(type, Component)) {
-    const element = initComponent(type, { props, events })
-    // TODO
-    return element
-  }
-
-  const node = document.createElement(type)
-  each(attrs, (value, key) => {
-    node.setAttribute(key, value)
-  })
-  each(events, (fn, key) => {
-    node.addEventListener(key, fn)
-  })
-  return node
 }
 
 function updateElement(element, meta = {}) {}
