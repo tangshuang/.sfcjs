@@ -151,10 +151,12 @@ class Element {
 
   collector = new Set()
   mounted = false
+  root = null // 被挂载到的DOM节点
 
   // 用于渲染的素材
   neure = null // 最顶级的Neure实例
-  gamut = null // 样式记录
+  brushes = null // 样式记录
+  node = null // 生成的DOM元素
 
   queue = []
   schedule = []
@@ -303,12 +305,57 @@ class Element {
     const { render, dye } = context
 
     if (dye) {
-      const gamut = dye()
-      this.gamut = gamut
+      const brushes = dye()
+      this.brushes = brushes
     }
 
     const neure = render()
     this.neure = neure
+  }
+
+  async create() {
+    const { onCreate } = this.context
+    const { type, props, attrs, events } = this.neure
+
+    if (isInstanceOf(type, Component)) {
+      const element = initComponent(type, { props, events })
+      await element.$ready()
+      const node = await element.create()
+      return node
+    }
+
+    const node = document.createElement(type)
+    each(attrs, (value, key) => {
+      node.setAttribute(key, value)
+    })
+    each(events, (fn, key) => {
+      node.addEventListener(key, fn)
+    })
+
+    this.node = node
+
+    // TODO 创建css
+
+    if (onCreate) {
+      onCreate()
+    }
+
+    return node
+  }
+
+  async mount(el) {
+    const node = this.node
+
+    el.innerHTML = ''
+    el.appendChild(node)
+
+    this.root = el
+    this.mounted = true
+
+    const { onMount } = this.context
+    if (onMount) {
+      onMount()
+    }
   }
 
   destroy() {
@@ -555,7 +602,7 @@ function createNeure(type, meta, children, args) {
   return neure
 }
 
-function createNode(type, meta) {
+async function createNode(type, meta) {
   const { props, attrs, events } = meta
   if (isInstanceOf(type, Component)) {
     const element = initComponent(type, { props, events })
