@@ -132,7 +132,7 @@ class Element {
   neure = null // 最顶级的Neure实例
   brushes = null // 样式记录
 
-  queue = []
+  queue = new Map()
   schedule = []
 
   constructor(props) {
@@ -152,7 +152,7 @@ class Element {
   collect(fn) {
     const { collector } = this
     const originCollector = new Set([...collector])
-    collector.clear()
+    this.collector.clear()
 
     const res = fn()
 
@@ -161,8 +161,8 @@ class Element {
     return [res, deps]
   }
 
-  reactive(init, getter, setter) {
-    const [value, deps] = this.collect(() => init())
+  reactive(compute, getter, setter) {
+    const [value, deps] = this.collect(() => compute())
     const immut = createProxy(value, {
       writable: () => false,
       receive: (...args) => {
@@ -171,31 +171,22 @@ class Element {
           const next = produce(value, (value) => {
             remove(value, keyPath)
           })
-          const newReact = reactive(
-            () => next,
-            getter,
-            setter,
-          )
-          setter(newReact)
+          setter(next)
         }
         else {
           const [keyPath, nextValue] = args
           const next = produce(value, (value) => {
             assign(value, keyPath, nextValue)
           })
-          const newReact = this.reactive(
-            () => next,
-            getter,
-            setter,
-          )
-          setter(newReact)
+          setter(next)
         }
       },
     })
 
-    var react = {
+    const react = {
       $$typeof: REACTIVE_SYMBOL,
       value: immut,
+      compute,
       getter,
       setter,
     }
@@ -236,7 +227,7 @@ class Element {
       const { collector, mounted } = this
 
       if (!mounted) {
-        collector.clear()
+        this.collector.clear()
         this._scheduleUpdating = false
         return
       }
@@ -251,12 +242,13 @@ class Element {
         const { getter } = item
         const newValue = getter()
         if (item !== newValue) {
-          this.queue.push(item)
-          this.queueUpdate()
+          this.queue.set(item, newValue)
         }
       })
 
-      collector.clear()
+      this.queueUpdate()
+
+      this.collector.clear()
       this._scheduleUpdating = false
     })
   }
@@ -264,12 +256,55 @@ class Element {
   queueUpdate() {
     const { context, queue } = this
 
-    if (!queue.length) {
+    if (!queue.size) {
       return
     }
 
-    console.log(queue)
-    // TODO
+    const isReactive = (value) =>{
+      return value && typeof value === 'object' && value.$$typeof === REACTIVE_SYMBOL
+    }
+
+    const changed = []
+    queue.forEach((oldOne, newValue) => {
+      // const { setter, getter } = oldOne
+      // if (!isReactive(newValue)) {
+      //   const react = this.reactive(
+      //     () => newValue,
+      //     getter,
+      //     setter,
+      //   )
+      //   setter(react)
+      //   newValue = react
+      // }
+
+      changed.push({
+        old: oldOne,
+        new: newValue,
+      })
+    })
+
+    this.queue.clear()
+
+    // 通过脏检查，找出全部发生变化的reactive
+    let dirty = false
+    do {
+      let hasDiffDep = false
+
+      this.schedule.forEach((item, i) => {
+        if (item.type !== SCHEDULE_TYPE.VAR) {
+          return
+        }
+
+        if (item.deps.some(dep => changed.some(one => one.old === dep))) {
+          hasDiffDep = true
+
+        }
+      })
+
+      dirty = hasDiffDep
+    } while (dirty)
+
+
 
     const { onUpdate } = context
     if (onUpdate) {
@@ -528,6 +563,7 @@ export function initComponent(absUrl, meta = {}) {
         get(props, key) {
           const value = props[key]
           element.collector.add({ $$typeof: PROP_SYMBOL, getter: () => props[key], value })
+          element.scheduleUpdate()
           return value
         },
       }),
