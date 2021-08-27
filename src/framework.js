@@ -1,6 +1,6 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual, isString, isInstanceOf, decideby } from 'ts-fns'
+import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual, isString, isInstanceOf, decideby, uniqueArray } from 'ts-fns'
 import produce from 'immer'
 
 const components = {}
@@ -33,7 +33,7 @@ export function define(absUrl, deps, fn) {
   each(depComponents, (dep) => {
     const url = resolveUrl(absUrl, dep)
     // 必须转化为绝对路径才能从component上读取
-    component.deps.forEach((item, i) => {
+    each(component.deps, (item, i) => {
       if (item === dep) {
         component.deps[i] = url
       }
@@ -55,6 +55,12 @@ const SCHEDULE_TYPE = {
   VAR: 'var',
   RENDER: 'render',
   DYE: 'dye',
+}
+// 更新类型
+const UPDATE_TYPE = {
+  META: 'meta',
+  FRAGMENT: 'fragment',
+  CHILDREN: 'children',
 }
 
 class Neure {
@@ -96,7 +102,6 @@ class Neure {
 }
 
 class NeureFragment extends Neure {
-  backer = null // 记录前一个neure
   contents = null // fragment内部的内容
   getter = null // 用于获取contents的函数
 
@@ -240,7 +245,11 @@ class Element {
 
     this.schedule.find((item) => {
       if (item.type === SCHEDULE_TYPE.VAR && item.var === reactor) {
-        item.deps = deps
+        // 自引用，比如自加操作等。这时将原始的依赖进行展开。同时可能有新的依赖
+        if (deps.includes(reactor)) {
+          deps.splice(deps.indexOf(reactor), 1, ...item.deps)
+        }
+        item.deps = uniqueDeps(deps)
         return true
       }
     })
@@ -264,24 +273,106 @@ class Element {
       }
 
 
-      const scheduleVars = this.schedule.filter(item => item.type === SCHEDULE_TYPE.VAR)
-      // 计算依赖关系计算顺序 https://blog.csdn.net/cn_gaowei/article/details/7641649
+      /**
+       * 第一步处理变量
+       */
 
-      const changedVars = this.schedule.filter((item) => {
-        if (item.type !== SCHEDULE_TYPE.VAR) {
-          return false
+      const scheduleVars = []
+      const scheduleRender = []
+      const scheduleDye = []
+      this.schedule.forEach((item) => {
+        if (item.type === SCHEDULE_TYPE.VAR) {
+          scheduleVars.push(item)
         }
-
-        if (!item.deps.some((item) => {
-          item.$$typeof
-        })) {
-          return false
+        else if (item.type === SCHEDULE_TYPE.RENDER) {
+          scheduleRender.push(item)
         }
-
-        return true
+        else if (item.type === SCHEDULE_TYPE.DYE) {
+          scheduleDye.push(item)
+        }
       })
 
-      console.log([...queue])
+      // 计算依赖关系计算顺序 https://blog.csdn.net/cn_gaowei/article/details/7641649x
+      const deps = [] // 被依赖的
+      const depBys = [] // 依赖了别的的
+      const all = new Set() // 所有的
+      const graph = [] // 按特定顺序的
+      // const relation = new Map() // 记录一个对象被哪些对象依赖了
+
+      scheduleVars.forEach((item) => {
+        item.deps.forEach((dep) => {
+          deps.push(dep)
+          depBys.push(item)
+          all.add(dep)
+        })
+        all.add(item)
+      })
+
+      // 找出只被依赖，不需要依赖别人的
+      do {
+        // 它们需要被最先处理
+        const onlyDeps = [...new Set([...all].filter(item => !depBys.includes(item)))]
+        graph.push(onlyDeps)
+        for (let i = deps.length - 1; i >= 0; i --) {
+          const dep = deps[i]
+          if (onlyDeps.includes(dep)) {
+            // // 反过来记录被依赖关系
+            // const depOf = relation.get(dep) || []
+            // depOf.push(depBys[i])
+            // relation.set(dep, depOf)
+
+            // 把被加入到带处理组的删除
+            deps.splice(i, 1)
+            depBys.splice(i, 1)
+          }
+        }
+      } while (deps.length)
+
+      // 找出哪些没有被加入队列的，这些就是最后需要处理的，它们可能依赖前已经变动过的，但是，也可能不需要处理
+      const needs = [...new Set([...all].filter(item => !graph.some(items => items.includes(item))))]
+      graph.push(needs)
+
+      // 根据依赖关系，计算全部变量
+      let changed = [...queue]
+      graph.forEach((items) => {
+        each(items, (item) => {
+          if (!item.deps) {
+            return
+          }
+          // 重新计算，并将该项放到changed中提供给下一个组做判断
+          if (item.deps.some(dep => inDeps(dep, changed))) {
+            const reactor = item.var
+            const { compute } = reactor
+            const [value, deps] = this.collect(() => compute())
+            reactor.value = value
+            // 自引用，比如自加操作等。这时将原始的依赖进行展开。同时可能有新的依赖
+            if (deps.includes(reactor)) {
+              deps.splice(deps.indexOf(reactor), 1, ...item.deps)
+            }
+            item.deps = uniqueDeps(deps)
+            changed = uniqueDeps([...changed, reactor])
+          }
+        })
+      })
+
+      console.log(changed)
+
+      // 根据变化情况更新DOM
+      scheduleRender.forEach((item) => {
+        const { neure, meta, children, fragment } = item
+        if (fragment && fragment.some(item => inDeps(item, changed))) {
+          this.updateNode(neure, UPDATE_TYPE.FRAGMENT)
+        }
+        if (meta && meta.some(item => inDeps(item, changed))) {
+          this.updateNode(neure, UPDATE_TYPE.META)
+        }
+        if (children && children.some(item => inDeps(item, changed))) {
+          this.updateNode(neure, UPDATE_TYPE.CHILDREN)
+        }
+      })
+
+      // 计算新的vars的值
+
 
       // const isReactive = (value) => {
       //   return value && typeof value === 'object' && value.$$typeof === REACTIVE_SYMBOL
@@ -341,51 +432,48 @@ class Element {
     const mountNeure = async (neure, root) => {
       const { type, attrs, events, element, child, sibling, text, visible } = neure
 
-      if (visible) {
-        let current = null
-
-        if (isInstanceOf(type, Component)) {
-          await element.$ready()
-          await element.setup(child)
-          await element.mount(root)
+      if (isInstanceOf(type, Component)) {
+        await element.$ready()
+        await element.setup(child)
+        await element.mount(root)
+      }
+      else if (type === FRAGMENT_NODE) {
+        if (child) {
+          await mountNeure(child, root)
         }
-        else if (type === FRAGMENT_NODE) {
-          if (child) {
-            await mountNeure(child, root)
-          }
-        }
-        else if (type === TEXT_NODE) {
-          const node = document.createTextNode(text)
+      }
+      else if (type === TEXT_NODE) {
+        const node = document.createTextNode(text)
+        if (visible) {
           root.appendChild(node)
-          neure.node = node
-          neure.parentNode = root
         }
-        else if (type === 'slot') {
-          const { slot } = this
-          // TODO
-        }
-        else {
-          const node = document.createElement(type)
-          each(attrs, (value, key) => {
-            node.setAttribute(key, value)
-          })
-          each(events, (fn, key) => {
-            node.addEventListener(key, fn)
-          })
+        neure.node = node
+        neure.parentNode = root
+      }
+      else if (type === 'slot') {
+        const { slot } = this
+        // TODO
+      }
+      else {
+        const node = document.createElement(type)
+        each(attrs, (value, key) => {
+          node.setAttribute(key, value)
+        })
+        each(events, (fn, key) => {
+          node.addEventListener(key, fn)
+        })
 
+        if (visible) {
           root.appendChild(node)
-          neure.node = node
-          neure.parentNode = root
-          current = node
         }
 
-        if (current) {
-          if (child) {
-            await mountNeure(child, current)
-          }
+        neure.node = node
+        if (child) {
+          await mountNeure(child, node)
         }
       }
 
+      neure.parentNode = root
       if (sibling) {
         await mountNeure(sibling, root)
       }
@@ -481,84 +569,64 @@ class Element {
     const [neure, metaDeps] = this.collect(() => initNeure(meta))
     neure.deps.meta = metaDeps
 
-    const setTextNode = (text, parent, backer) => {
-      const node = new Neure({
-        type: TEXT_NODE,
-        parent,
-      })
-
-      node.text = text
-
-      if (backer) {
-        backer.sibling = node
-      }
-      if (!parent.child) {
-        parent.child = node
-      }
-      node.backer = backer
-    }
-    const setNeureNode = (node, parent, backer) => {
-      node.parent = parent
-      if (backer) {
-        backer.sibling = node
-      }
-      if (!parent.child) {
-        parent.child = node
-      }
-      node.backer = backer
-    }
-
-    const genChildren = (neure) => {
-      const { visible, children, args } = neure
-      if (!visible) {
-        return
-      }
-
-      if (!children) {
-        return
-      }
-
-      const [sub, childrenDeps] = this.collect(() => children(args))
-      neure.deps.children = childrenDeps
-
-      if (isString(sub)) {
-        setTextNode(sub, neure)
-      }
-      else if (isInstanceOf(sub, Neure)) {
-        setNeureNode(sub, neure)
-      }
-      else if (isArray(sub)) {
-        sub.reduce((backer, item) => {
-          if (isInstanceOf(item, Neure)) {
-            setNeureNode(item, neure, backer)
-          }
-          else if (isString(item)) {
-            setTextNode(item, neure, backer)
-          }
-          return item
-        }, null)
-      }
-    }
-
     if (isInstanceOf(neure, NeureFragment)) {
-      each(neure.contents, genChildren)
+      each(neure.contents, this.genChildren.bind(this))
     }
     else {
-      genChildren(neure)
+      this.genChildren(neure)
     }
 
     if (
       (neure.deps.meta && neure.deps.meta.length)
       || (neure.deps.children && neure.deps.children.length)
       || (neure.deps.fragment && neure.deps.fragment.length)
-    )
-    this.schedule.push({
-      type: SCHEDULE_TYPE.RENDER,
-      ...neure.deps,
-      neure,
-    })
+    ) {
+      this.schedule.push({
+        type: SCHEDULE_TYPE.RENDER,
+        ...neure.deps,
+        neure,
+      })
+    }
 
     return neure
+  }
+
+  genChildren(neure) {
+    const { visible, children, args } = neure
+    if (!visible) {
+      return
+    }
+
+    if (!children) {
+      return
+    }
+
+    const [sub, childrenDeps] = this.collect(() => children(args))
+    neure.deps.children = childrenDeps
+
+    if (isString(sub)) {
+      setTextNode(sub, neure)
+    }
+    else if (isInstanceOf(sub, Neure)) {
+      setNeureNode(sub, neure)
+    }
+    else if (isArray(sub)) {
+      sub.reduce((backer, item) => {
+        if (isInstanceOf(item, Neure)) {
+          setNeureNode(item, neure, backer)
+        }
+        else if (isString(item)) {
+          setTextNode(item, neure, backer)
+        }
+        return item
+      }, null)
+    }
+  }
+
+
+
+  updateNode(neure, type) {
+    console.log(neure, type)
   }
 
   r(name, ...args) {}
@@ -680,20 +748,68 @@ function createNeure(type, meta, children, args) {
   return neure
 }
 
-function updateElement(element, props = {}) {
-  const keys = Object.keys(props)
-  const oldProps = element.props
+// function updateElement(element, props = {}) {
+//   const keys = Object.keys(props)
+//   const oldProps = element.props
 
-  const changed = keys.filter(key => props[key] !== oldProps[key])
-  changed.forEach((key) => {
-    const value = props[key]
-    element.queue.add({
-      $$typeof: PROP_SYMBOL,
-      key,
-      value,
-    })
+//   const changed = keys.filter(key => props[key] !== oldProps[key])
+//   each(changed, (key) => {
+//     const value = props[key]
+//     element.queue.add({
+//       $$typeof: PROP_SYMBOL,
+//       key,
+//       value,
+//     })
+//   })
+//   if (changed.length) {
+//     element.runSchedule()
+//   }
+// }
+
+function uniqueDeps(deps) {
+  return deps.filter((item, i) => {
+    if (deps.indexOf(item) !== i) {
+      return false
+    }
+    if (item.$$typeof === PROP_SYMBOL && deps.findIndex(dep => dep.$$typeof === PROP_SYMBOL && dep.key === item.key) !== i) {
+      return false
+    }
+    return true
   })
-  if (changed.length) {
-    element.runSchedule()
+}
+
+function inDeps(dep, deps) {
+  if (deps.includes(dep)) {
+    return true
+  }
+  if (dep.$$typeof === PROP_SYMBOL && deps.some(item => item.$$typeof === PROP_SYMBOL && item.key === dep.key)) {
+    return true
+  }
+  return false
+}
+
+function setTextNode(text, parent, backer) {
+  const node = new Neure({
+    type: TEXT_NODE,
+    parent,
+  })
+
+  node.text = text
+
+  if (backer) {
+    backer.sibling = node
+  }
+  if (!parent.child) {
+    parent.child = node
+  }
+}
+
+function setNeureNode(node, parent, backer) {
+  node.parent = parent
+  if (backer) {
+    backer.sibling = node
+  }
+  if (!parent.child) {
+    parent.child = node
   }
 }
