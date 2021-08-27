@@ -44,10 +44,13 @@ export function define(absUrl, deps, fn) {
 
 // ---------------------------------------------
 
+// 数据类型
 const REACTIVE_SYMBOL = Symbol('reactive')
 const PROP_SYMBOL = Symbol('prop')
+// 节点类型
 const TEXT_NODE = Symbol('TextNode')
 const FRAGMENT_NODE = Symbol('Fragment')
+// 计划类型
 const SCHEDULE_TYPE = {
   VAR: 'var',
   RENDER: 'render',
@@ -162,48 +165,51 @@ class Element {
           const next = produce(value, (value) => {
             remove(value, keyPath)
           })
-          react.value = create(next)
+          const value = create(next)
+          this.update(reactor, () => value)
         }
         else {
           const [keyPath, nextValue] = args
           const next = produce(value, (value) => {
             assign(value, keyPath, nextValue)
           })
-          react.value = create(next)
+          const value = create(next)
+          this.update(reactor, () => value)
         }
       },
     })
 
-    var react = {
+    var reactor = {
       $$typeof: REACTIVE_SYMBOL,
       value: create(value),
+      compute,
     }
 
     if (deps.length) {
       this.schedule.push({
         type: SCHEDULE_TYPE.VAR,
         deps,
-        var: react,
+        var: reactor,
       })
     }
 
-    return react
+    return reactor
   }
 
-  consume(react) {
-    if (!react || typeof react !== 'object') {
-      return react
+  consume(reactor) {
+    if (!reactor || typeof reactor !== 'object') {
+      return reactor
     }
 
-    if (react.$$typeof !== REACTIVE_SYMBOL) {
-      return react
+    if (reactor.$$typeof !== REACTIVE_SYMBOL) {
+      return reactor
     }
 
     if (this._isCollecting) {
-      this.collector.add(react)
+      this.collector.add(reactor)
     }
 
-    const { value } = react
+    const { value } = reactor
     return value
   }
 
@@ -219,114 +225,113 @@ class Element {
     return [res, deps]
   }
 
-  update(react, updator) {
-    if (!react || typeof react !== 'object') {
-      return updator()
+  update(reactor, compute) {
+    if (!reactor || typeof reactor !== 'object') {
+      return compute()
     }
 
-    if (react.$$typeof !== REACTIVE_SYMBOL) {
-      return updator()
+    if (reactor.$$typeof !== REACTIVE_SYMBOL) {
+      return compute()
     }
 
-    const value = updator()
-    react.value = value
-    this.queue.add(react)
-    this.queueUpdate()
-    return react
+    const [value, deps] = this.collect(() => compute())
+    reactor.value = value
+    reactor.compute = compute
+
+    this.schedule.find((item) => {
+      if (item.type === SCHEDULE_TYPE.VAR && item.var === reactor) {
+        item.deps = deps
+        return true
+      }
+    })
+
+    this.queue.add(reactor)
+    this.runSchedule()
+
+    return reactor
   }
 
-  // scheduleUpdate() {
-  //   if (this._scheduleUpdating) {
-  //     return
-  //   }
-  //   this._scheduleUpdating = true
-  //   requestAnimationFrame(() => {
-  //     const { collector, mounted } = this
-
-  //     if (!mounted) {
-  //       this.collector.clear()
-  //       this._scheduleUpdating = false
-  //       return
-  //     }
-
-  //     if (!collector.size) {
-  //       this._scheduleUpdating = false
-  //       return
-  //     }
-
-  //     const items = [...collector]
-  //     each(items, (item) => {
-  //       const { getter } = item
-  //       const newValue = getter()
-  //       if (item !== newValue) {
-  //         this.queue.set(item, newValue)
-  //       }
-  //     })
-
-  //     this.queueUpdate()
-
-  //     this.collector.clear()
-  //     this._scheduleUpdating = false
-  //   })
-  // }
-
-  queueUpdate() {
-    const { context, queue } = this
-
-    if (!queue.size) {
+  runSchedule() {
+    if (this._scheduleUpdating) {
       return
     }
+    this._scheduleUpdating = true
+    requestAnimationFrame(() => {
+      const { context, queue } = this
 
-    console.log([...queue])
+      if (!queue.size) {
+        return
+      }
 
-    // const isReactive = (value) =>{
-    //   return value && typeof value === 'object' && value.$$typeof === REACTIVE_SYMBOL
-    // }
 
-    // const changed = []
-    // queue.forEach((oldOne, newValue) => {
-    //   // const { setter, getter } = oldOne
-    //   // if (!isReactive(newValue)) {
-    //   //   const react = this.reactive(
-    //   //     () => newValue,
-    //   //     getter,
-    //   //     setter,
-    //   //   )
-    //   //   setter(react)
-    //   //   newValue = react
-    //   // }
+      const scheduleVars = this.schedule.filter(item => item.type === SCHEDULE_TYPE.VAR)
+      // 计算依赖关系计算顺序 https://blog.csdn.net/cn_gaowei/article/details/7641649
 
-    //   changed.push({
-    //     old: oldOne,
-    //     new: newValue,
-    //   })
-    // })
+      const changedVars = this.schedule.filter((item) => {
+        if (item.type !== SCHEDULE_TYPE.VAR) {
+          return false
+        }
 
-    // this.queue.clear()
+        if (!item.deps.some((item) => {
+          item.$$typeof
+        })) {
+          return false
+        }
 
-    // // 通过脏检查，找出全部发生变化的reactive
-    // let dirty = false
-    // do {
-    //   let hasDiffDep = false
+        return true
+      })
 
-    //   this.schedule.forEach((item, i) => {
-    //     if (item.type !== SCHEDULE_TYPE.VAR) {
-    //       return
-    //     }
+      console.log([...queue])
 
-    //     if (item.deps.some(dep => changed.some(one => one.old === dep))) {
-    //       hasDiffDep = true
+      // const isReactive = (value) => {
+      //   return value && typeof value === 'object' && value.$$typeof === REACTIVE_SYMBOL
+      // }
 
-    //     }
-    //   })
+      // const changed = []
+      // queue.forEach((oldOne, newValue) => {
+      //   // const { setter, getter } = oldOne
+      //   // if (!isReactive(newValue)) {
+      //   //   const reactor = this.reactive(
+      //   //     () => newValue,
+      //   //     getter,
+      //   //     setter,
+      //   //   )
+      //   //   setter(reactor)
+      //   //   newValue = reactor
+      //   // }
 
-    //   dirty = hasDiffDep
-    // } while (dirty)
+      //   changed.push({
+      //     old: oldOne,
+      //     new: newValue,
+      //   })
+      // })
 
-    const { onUpdate } = context
-    if (onUpdate) {
-      onUpdate()
-    }
+      this.queue.clear()
+
+      // // 通过脏检查，找出全部发生变化的reactive
+      // let dirty = false
+      // do {
+      //   let hasDiffDep = false
+
+      //   this.schedule.forEach((item, i) => {
+      //     if (item.type !== SCHEDULE_TYPE.VAR) {
+      //       return
+      //     }
+
+      //     if (item.deps.some(dep => changed.some(one => one.old === dep))) {
+      //       hasDiffDep = true
+
+      //     }
+      //   })
+
+      //   dirty = hasDiffDep
+      // } while (dirty)
+
+      const { onUpdate } = context
+      if (onUpdate) {
+        onUpdate()
+      }
+    })
   }
 
   // should must run after setup
@@ -580,7 +585,11 @@ export function initComponent(absUrl, meta = {}) {
         get(props, key) {
           const value = props[key]
           if (element._isCollecting) {
-            element.collector.add({ $$typeof: PROP_SYMBOL, getter: () => props[key], value })
+            element.collector.add({
+              $$typeof: PROP_SYMBOL,
+              key,
+              value,
+            })
           }
           return value
         },
@@ -671,4 +680,20 @@ function createNeure(type, meta, children, args) {
   return neure
 }
 
-function updateElement(element, meta = {}) {}
+function updateElement(element, props = {}) {
+  const keys = Object.keys(props)
+  const oldProps = element.props
+
+  const changed = keys.filter(key => props[key] !== oldProps[key])
+  changed.forEach((key) => {
+    const value = props[key]
+    element.queue.add({
+      $$typeof: PROP_SYMBOL,
+      key,
+      value,
+    })
+  })
+  if (changed.length) {
+    element.runSchedule()
+  }
+}
