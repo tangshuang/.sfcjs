@@ -358,20 +358,7 @@ class Element {
       console.log(changed)
 
       // 根据变化情况更新DOM
-      scheduleRender.forEach((item) => {
-        const { neure, meta, children, fragment } = item
-        if (fragment && fragment.some(item => inDeps(item, changed))) {
-          this.updateNode(neure, UPDATE_TYPE.FRAGMENT)
-        }
-        if (meta && meta.some(item => inDeps(item, changed))) {
-          this.updateNode(neure, UPDATE_TYPE.META)
-        }
-        if (children && children.some(item => inDeps(item, changed))) {
-          this.updateNode(neure, UPDATE_TYPE.CHILDREN)
-        }
-      })
-
-      // 计算新的vars的值
+      this.updateNode(changed)
 
 
       // const isReactive = (value) => {
@@ -576,17 +563,17 @@ class Element {
       this.genChildren(neure)
     }
 
-    if (
-      (neure.deps.meta && neure.deps.meta.length)
-      || (neure.deps.children && neure.deps.children.length)
-      || (neure.deps.fragment && neure.deps.fragment.length)
-    ) {
-      this.schedule.push({
-        type: SCHEDULE_TYPE.RENDER,
-        ...neure.deps,
-        neure,
-      })
-    }
+    // if (
+    //   (neure.deps.meta && neure.deps.meta.length)
+    //   || (neure.deps.children && neure.deps.children.length)
+    //   || (neure.deps.fragment && neure.deps.fragment.length)
+    // ) {
+    //   this.schedule.push({
+    //     type: SCHEDULE_TYPE.RENDER,
+    //     ...neure.deps,
+    //     neure,
+    //   })
+    // }
 
     return neure
   }
@@ -622,8 +609,6 @@ class Element {
       }, null)
     }
   }
-
-
 
   updateNode(neure, type) {
     console.log(neure, type)
@@ -802,6 +787,9 @@ function setTextNode(text, parent, backer) {
   if (!parent.child) {
     parent.child = node
   }
+
+  node.backer = backer
+  return node
 }
 
 function setNeureNode(node, parent, backer) {
@@ -812,4 +800,5 @@ function setNeureNode(node, parent, backer) {
   if (!parent.child) {
     parent.child = node
   }
+  node.backer = backer
 }
