@@ -152,7 +152,14 @@ export function parseJs(sourceCode) {
       vars[varName] = 1
       const varValue = value.trim()
       const varExp = varValue[0] === '{' ? `(${varValue})` : varValue
-      return `let ${varName} = SFC.reactive(() => ${varExp}, () => ${varName}, (value) => ${varName} = value);`
+      return `let ${varName} = SFC.reactive(() => ${varExp});`
+    })
+  }
+  const createUpdate = (code) => {
+    return code.replace(/(.*?)=([\w\W]+?);$/, (_, name, value) => {
+      const varName = name.trim()
+      const varValue = value.trim()
+      return `${varName} = SFC.update(${varName}, () => ${varValue});`
     })
   }
 
@@ -160,6 +167,7 @@ export function parseJs(sourceCode) {
   for (let i = 0, len = tokens.length; i < len; i ++) {
     const token = tokens[i]
 
+    // declare
     if (token === 'let') {
       const localScope = []
       const start = ['(', '[', '{']
@@ -181,11 +189,6 @@ export function parseJs(sourceCode) {
 
         // 结束标记
         if (!localScope.length && next === ';') {
-          code += createReactive(reactive)
-          break
-        }
-        // TODO 需要支持不使用分号结尾的脚本
-        if (!localScope.length && next === '\n') {
           code += createReactive(reactive)
           break
         }
@@ -212,30 +215,26 @@ export function parseJs(sourceCode) {
         reactive += next
       }
     }
+    // update
     else if (vars[token.trim()] && tokens[i + 1]?.trim() === '=' && tokens[i + 2]?.trim() !== '=') {
       const localScope = []
       const start = ['(', '[', '{']
       const end = [')', ']', '}']
-      let reactive = token
+      let updator = token
 
       i ++
       let next = tokens[i]
-      reactive += next
+      updator += next
 
       while (1) {
         if (i >= len) {
-          code += reactive
+          code += createUpdate(updator)
           break
         }
 
         // 结束标记
         if (!localScope.length && next === ';') {
-          code += reactive
-          break
-        }
-        // TODO 需要支持不使用分号结尾的脚本
-        if (!localScope.length && next === '\n') {
-          code += reactive
+          code += createUpdate(updator)
           break
         }
 
@@ -256,17 +255,19 @@ export function parseJs(sourceCode) {
         i ++
         next = tokens[i]
         if (vars[next]) {
-          reactive += `SFC.consume(${next})`
+          updator += `SFC.consume(${next})`
         }
         else {
-          reactive += next
+          updator += next
         }
       }
     }
+    // consume
     else if (vars[token]) {
       const next = `SFC.consume(${token})`
       code += next
     }
+    // normal
     else {
       code += token
     }
