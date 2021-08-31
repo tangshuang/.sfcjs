@@ -1,3 +1,7 @@
+const OPERATORS = ['++', '--', '**']
+const SPECIARES = ['(', ')', '[', ']', '{', '}', ';', '\n']
+const MODIFIERS = ['+=', '-=', '*=', '/=', '%=']
+
 export function tokenize(code) {
   const tokens = []
 
@@ -10,7 +14,20 @@ export function tokenize(code) {
   for (let len = code.length; cursor < len; cursor ++) {
     const char = code[cursor]
 
-    if (['(', ')', '[', ']', '{', '}', ';', '\n'].includes(char)) {
+    const twoChars = char + code[cursor + 1]
+    if ([...OPERATORS, ...MODIFIERS].includes(twoChars)) {
+      if (token) {
+        tokens.push(token)
+        token = ''
+      }
+      if (str) {
+        tokens.push(str)
+        str = ''
+      }
+      tokens.push(twoChars)
+      cursor ++
+    }
+    else if (SPECIARES.includes(char)) {
       if (token) {
         tokens.push(token)
         token = ''
@@ -216,7 +233,13 @@ export function parseJs(sourceCode) {
       }
     }
     // update
-    else if (vars[token.trim()] && tokens[i + 1]?.trim() === '=' && tokens[i + 2]?.trim() !== '=') {
+    else if (
+      vars[token.trim()]
+      && (
+        (tokens[i + 1]?.trim() === '=' && tokens[i + 2]?.trim() !== '=')
+        || (MODIFIERS.includes(tokens[i + 1]))
+      )
+    ) {
       const localScope = []
       const start = ['(', '[', '{']
       const end = [')', ']', '}']
@@ -261,6 +284,15 @@ export function parseJs(sourceCode) {
           updator += next
         }
       }
+    }
+    // 一元操作
+    else if (vars[token.trim()] && OPERATORS.includes(tokens[i + 1])) {
+      i ++
+      const operator = tokens[i]
+      const varname = token.trim()
+
+      const exp = `${varname} = SFC.update(${varname}, () => { let _${varname} = SFC.consume(${varname}); return ${operator} _${varname} });`
+      code += exp
     }
     // consume
     else if (vars[token]) {

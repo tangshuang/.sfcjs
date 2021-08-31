@@ -101,6 +101,12 @@ export function parseHtml(sourceCode, components, givenVars) {
         else if (k === 'key') {
           directives.push(['key', value])
         }
+        else if (k === 'class') {
+          directives.push(['class', value])
+        }
+        else if (k === 'style') {
+          directives.push(['style', value])
+        }
       }
       else {
         const v = createValue()
@@ -124,7 +130,7 @@ export function parseHtml(sourceCode, components, givenVars) {
       if (!info.length) {
         return
       }
-      let res = `${name}: (${finalArgsStr}) => ({`
+      let res = `${name}:(${finalArgsStr}) => ({`
       res += info.map(([key, value]) => `${key}:${value}`).join(',')
       res += '})'
       return res

@@ -59,7 +59,7 @@ class SFC_Element extends HTMLElement {
     const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
     const code = await getComponentCode(url)
-    // console.log(code)
+    console.log(code)
     const script = createScriptByBlob(code)
     script.setAttribute('sfc-src', url)
     this.absUrl = url

@@ -132,7 +132,6 @@ class Element {
   context = null // 内部返回的结果
 
   collector = new Set()
-  mounted = false
   root = null // 被挂载到的DOM节点
 
   // 用于渲染的素材
@@ -140,11 +139,14 @@ class Element {
   neure = null // 最顶级的Neure实例
   brushes = null // 样式记录
 
+  schedule = new Set()
   queue = new Set()
-  schedule = []
+
+  relations = []
 
   _isCollecting = false
   _scheduleUpdating = false
+  _isMounted = false
 
   constructor(props) {
     this._ready = new Promise((resolve) => {
@@ -191,7 +193,7 @@ class Element {
     }
 
     if (deps.length) {
-      this.schedule.push({
+      this.relations.push({
         type: SCHEDULE_TYPE.VAR,
         deps,
         var: reactor,
@@ -213,6 +215,11 @@ class Element {
     if (this._isCollecting) {
       this.collector.add(reactor)
     }
+
+    // if (this._isMounted) {
+    //   this.schedule.add(reactor)
+    //   this.scheduleUpdate()
+    // }
 
     const { value } = reactor
     return value
@@ -243,7 +250,7 @@ class Element {
     reactor.value = value
     reactor.compute = compute
 
-    this.schedule.find((item) => {
+    this.relations.find((item) => {
       if (item.type === SCHEDULE_TYPE.VAR && item.var === reactor) {
         // 自引用，比如自加操作等。这时将原始的依赖进行展开。同时可能有新的依赖
         if (deps.includes(reactor)) {
@@ -255,12 +262,16 @@ class Element {
     })
 
     this.queue.add(reactor)
-    this.runSchedule()
+    this.queueUpdate()
 
     return reactor
   }
 
-  runSchedule() {
+  // scheduleUpdate() {
+
+  // }
+
+  queueUpdate() {
     if (this._scheduleUpdating) {
       return
     }
@@ -280,7 +291,7 @@ class Element {
       const scheduleVars = []
       const scheduleRender = []
       const scheduleDye = []
-      this.schedule.forEach((item) => {
+      this.relations.forEach((item) => {
         if (item.type === SCHEDULE_TYPE.VAR) {
           scheduleVars.push(item)
         }
@@ -391,7 +402,7 @@ class Element {
       // do {
       //   let hasDiffDep = false
 
-      //   this.schedule.forEach((item, i) => {
+      //   this.relations.forEach((item, i) => {
       //     if (item.type !== SCHEDULE_TYPE.VAR) {
       //       return
       //     }
@@ -472,7 +483,7 @@ class Element {
     // TODO 挂载style
 
     this.root = el
-    this.mounted = true
+    this._isMounted = true
 
     if (onMount) {
       onMount()
@@ -480,12 +491,12 @@ class Element {
   }
 
   destroy() {
-    this.mounted = false
+    this._isMounted = false
     this.props = null
     this.context = null
     this.collector.clear()
     this.queue.length = 0
-    this.schedule.length = 0
+    this.relations.length = 0
     this.root.innerHTML = ''
     this.root = null
   }
@@ -568,7 +579,7 @@ class Element {
     //   || (neure.deps.children && neure.deps.children.length)
     //   || (neure.deps.fragment && neure.deps.fragment.length)
     // ) {
-    //   this.schedule.push({
+    //   this.relations.push({
     //     type: SCHEDULE_TYPE.RENDER,
     //     ...neure.deps,
     //     neure,
@@ -747,7 +758,7 @@ function createNeure(type, meta, children, args) {
 //     })
 //   })
 //   if (changed.length) {
-//     element.runSchedule()
+//     element.queueUpdate()
 //   }
 // }
 
