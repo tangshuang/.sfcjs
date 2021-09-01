@@ -51,16 +51,10 @@ const PROP_SYMBOL = Symbol('prop')
 const TEXT_NODE = Symbol('TextNode')
 const FRAGMENT_NODE = Symbol('Fragment')
 // 计划类型
-const SCHEDULE_TYPE = {
+const DEPEND_TYPE = {
   VAR: 'var',
   RENDER: 'render',
   DYE: 'dye',
-}
-// 更新类型
-const UPDATE_TYPE = {
-  META: 'meta',
-  FRAGMENT: 'fragment',
-  CHILDREN: 'children',
 }
 
 class Neure {
@@ -89,7 +83,7 @@ class Neure {
   deps = {
     meta: null,
     children: null,
-    fragment: null,
+    repeat: null,
   }
 
   constructor(data = {}) {
@@ -101,9 +95,10 @@ class Neure {
   }
 }
 
-class NeureFragment extends Neure {
+class NeureList extends Neure {
   contents = null // fragment内部的内容
   getter = null // 用于获取contents的函数
+  repeat = null
 
   visible = true
 
@@ -139,7 +134,7 @@ class Element {
   neure = null // 最顶级的Neure实例
   brushes = null // 样式记录
 
-  schedule = new Set()
+  // schedule = new Set()
   queue = new Set()
 
   relations = []
@@ -162,8 +157,8 @@ class Element {
     return this._ready
   }
 
-  reactive(compute) {
-    const [value, deps] = this.collect(() => compute())
+  reactive(getter, computed) {
+    const [value, deps] = computed ? this.collect(() => getter()) : [getter(), []]
     const create = (value) => createProxy(value, {
       writable: () => false,
       receive: (...args) => {
@@ -189,14 +184,13 @@ class Element {
     var reactor = {
       $$typeof: REACTIVE_SYMBOL,
       value: create(value),
-      compute,
+      getter,
     }
 
     if (deps.length) {
       this.relations.push({
-        type: SCHEDULE_TYPE.VAR,
         deps,
-        var: reactor,
+        by: reactor,
       })
     }
 
@@ -237,26 +231,24 @@ class Element {
     return [res, deps]
   }
 
-  update(reactor, compute) {
+  update(reactor, getter) {
     if (!reactor || typeof reactor !== 'object') {
-      return compute()
+      return getter()
     }
 
     if (reactor.$$typeof !== REACTIVE_SYMBOL) {
-      return compute()
+      return getter()
     }
 
-    const [value, deps] = this.collect(() => compute())
-    reactor.value = value
-    reactor.compute = compute
+    // 一旦一个变量被更新，那么它就失去了依赖其他变量响应式的能力
 
-    this.relations.find((item) => {
-      if (item.type === SCHEDULE_TYPE.VAR && item.var === reactor) {
-        // 自引用，比如自加操作等。这时将原始的依赖进行展开。同时可能有新的依赖
-        if (deps.includes(reactor)) {
-          deps.splice(deps.indexOf(reactor), 1, ...item.deps)
-        }
-        item.deps = uniqueDeps(deps)
+    const value = getter(reactor.value)
+    reactor.value = value
+    reactor.getter = () => value
+
+    this.relations.find((item, i) => {
+      if (item.by === reactor) {
+        this.relations.splice(i, 1)
         return true
       }
     })
@@ -268,7 +260,6 @@ class Element {
   }
 
   // scheduleUpdate() {
-
   // }
 
   queueUpdate() {
@@ -277,40 +268,19 @@ class Element {
     }
     this._scheduleUpdating = true
     requestAnimationFrame(() => {
-      const { context, queue } = this
+      const { queue } = this
 
       if (!queue.size) {
         return
       }
-
-
-      /**
-       * 第一步处理变量
-       */
-
-      const scheduleVars = []
-      const scheduleRender = []
-      const scheduleDye = []
-      this.relations.forEach((item) => {
-        if (item.type === SCHEDULE_TYPE.VAR) {
-          scheduleVars.push(item)
-        }
-        else if (item.type === SCHEDULE_TYPE.RENDER) {
-          scheduleRender.push(item)
-        }
-        else if (item.type === SCHEDULE_TYPE.DYE) {
-          scheduleDye.push(item)
-        }
-      })
 
       // 计算依赖关系计算顺序 https://blog.csdn.net/cn_gaowei/article/details/7641649x
       const deps = [] // 被依赖的
       const depBys = [] // 依赖了别的的
       const all = new Set() // 所有的
       const graph = [] // 按特定顺序的
-      // const relation = new Map() // 记录一个对象被哪些对象依赖了
 
-      scheduleVars.forEach((item) => {
+      this.relations.forEach((item) => {
         item.deps.forEach((dep) => {
           deps.push(dep)
           depBys.push(item)
@@ -327,11 +297,6 @@ class Element {
         for (let i = deps.length - 1; i >= 0; i --) {
           const dep = deps[i]
           if (onlyDeps.includes(dep)) {
-            // // 反过来记录被依赖关系
-            // const depOf = relation.get(dep) || []
-            // depOf.push(depBys[i])
-            // relation.set(dep, depOf)
-
             // 把被加入到带处理组的删除
             deps.splice(i, 1)
             depBys.splice(i, 1)
@@ -352,9 +317,9 @@ class Element {
           }
           // 重新计算，并将该项放到changed中提供给下一个组做判断
           if (item.deps.some(dep => inDeps(dep, changed))) {
-            const reactor = item.var
-            const { compute } = reactor
-            const [value, deps] = this.collect(() => compute())
+            const reactor = item.by
+            const { getter } = reactor
+            const [value, deps] = this.collect(() => getter())
             reactor.value = value
             // 自引用，比如自加操作等。这时将原始的依赖进行展开。同时可能有新的依赖
             if (deps.includes(reactor)) {
@@ -366,69 +331,27 @@ class Element {
         })
       })
 
-      console.log(changed)
 
       // 根据变化情况更新DOM
-      this.updateNode(changed)
 
+      const walk = (neure) => {
+        const { type, meta, children, deps } = neure
+      }
+      console.log(changed)
+      console.log(this.neure)
 
       // const isReactive = (value) => {
       //   return value && typeof value === 'object' && value.$$typeof === REACTIVE_SYMBOL
       // }
 
-      // const changed = []
-      // queue.forEach((oldOne, newValue) => {
-      //   // const { setter, getter } = oldOne
-      //   // if (!isReactive(newValue)) {
-      //   //   const reactor = this.reactive(
-      //   //     () => newValue,
-      //   //     getter,
-      //   //     setter,
-      //   //   )
-      //   //   setter(reactor)
-      //   //   newValue = reactor
-      //   // }
-
-      //   changed.push({
-      //     old: oldOne,
-      //     new: newValue,
-      //   })
-      // })
-
       this.queue.clear()
-
-      // // 通过脏检查，找出全部发生变化的reactive
-      // let dirty = false
-      // do {
-      //   let hasDiffDep = false
-
-      //   this.relations.forEach((item, i) => {
-      //     if (item.type !== SCHEDULE_TYPE.VAR) {
-      //       return
-      //     }
-
-      //     if (item.deps.some(dep => changed.some(one => one.old === dep))) {
-      //       hasDiffDep = true
-
-      //     }
-      //   })
-
-      //   dirty = hasDiffDep
-      // } while (dirty)
-
-      const { onUpdate } = context
-      if (onUpdate) {
-        onUpdate()
-      }
     })
   }
 
   // should must run after setup
   async mount(el) {
-    const { onMount } = this.context
-
     const mountNeure = async (neure, root) => {
-      const { type, attrs, events, element, child, sibling, text, visible } = neure
+      const { type, attrs, events, element, child, sibling, text, visible, className, style } = neure
 
       if (isInstanceOf(type, Component)) {
         await element.$ready()
@@ -460,6 +383,15 @@ class Element {
         each(events, (fn, key) => {
           node.addEventListener(key, fn)
         })
+        if (className) {
+          const classNames = className.split(' ')
+          classNames.forEach((item) => {
+            node.classList.add(item)
+          })
+        }
+        if (style) {
+          node.style.cssText = (node.style.cssText || '') + style
+        }
 
         if (visible) {
           root.appendChild(node)
@@ -484,10 +416,6 @@ class Element {
 
     this.root = el
     this._isMounted = true
-
-    if (onMount) {
-      onMount()
-    }
   }
 
   destroy() {
@@ -504,7 +432,7 @@ class Element {
   // should must run after ready()
   async setup(slot) {
     const { context } = this
-    const { render, dye, onCreate } = context
+    const { render, dye } = context
 
     if (dye) {
       const brushes = dye()
@@ -514,10 +442,6 @@ class Element {
     this.slot = slot
     const neure = render()
     this.neure = neure
-
-    if (onCreate) {
-      onCreate()
-    }
   }
 
   h(type, meta, childrenGetter) {
@@ -530,7 +454,7 @@ class Element {
       const { repeat: repeatGetter } = meta
 
       if (repeatGetter) {
-        const neureList = new NeureFragment({
+        const neureList = new NeureList({
           type: FRAGMENT_NODE,
           meta,
           children: childrenGetter,
@@ -539,7 +463,7 @@ class Element {
         neureList.setContents(() => {
           const neures = []
           const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-          neureList.deps.fragment = repeatDeps
+          neureList.deps.repeat = repeatDeps
           neureList.repeat = items
 
           each(items, (item, index) => {
@@ -567,7 +491,7 @@ class Element {
     const [neure, metaDeps] = this.collect(() => initNeure(meta))
     neure.deps.meta = metaDeps
 
-    if (isInstanceOf(neure, NeureFragment)) {
+    if (isInstanceOf(neure, NeureList)) {
       each(neure.contents, this.genChildren.bind(this))
     }
     else {
@@ -577,10 +501,10 @@ class Element {
     // if (
     //   (neure.deps.meta && neure.deps.meta.length)
     //   || (neure.deps.children && neure.deps.children.length)
-    //   || (neure.deps.fragment && neure.deps.fragment.length)
+    //   || (neure.deps.repeat && neure.deps.repeat.length)
     // ) {
     //   this.relations.push({
-    //     type: SCHEDULE_TYPE.RENDER,
+    //     type: DEPEND_TYPE.RENDER,
     //     ...neure.deps,
     //     neure,
     //   })
@@ -621,7 +545,7 @@ class Element {
     }
   }
 
-  updateNode(neure, type) {
+  updateNode(neure) {
     console.log(neure, type)
   }
 
@@ -679,11 +603,6 @@ export function initComponent(absUrl, meta = {}) {
     const context = await Promise.resolve(fn.call(inside, ...vars))
     element.context = context
 
-    const { onInit } = context
-    if (onInit) {
-      onInit()
-    }
-
     element.$ready(true)
   } ());
 
@@ -706,6 +625,8 @@ async function loadDepComponents(deps) {
 
 function createNeure(type, meta, children, args) {
   const {
+    class: classGetter,
+    style: styleGetter,
     visible: visibleGetter,
     key: keyGetter,
     attrs: attrsGetter,
@@ -720,6 +641,8 @@ function createNeure(type, meta, children, args) {
   const props = propsGetter ? propsGetter(args) : {}
   const events = eventsGetter ? eventsGetter(args) : {}
   const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
+  const className = classGetter ? classGetter(args) : ''
+  const style = styleGetter ? styleGetter(args) : ''
 
   const neure = new Neure({
     type,
@@ -734,6 +657,8 @@ function createNeure(type, meta, children, args) {
     attrs,
     props,
     events,
+    className,
+    style,
   })
 
   if (isInstanceOf(type, Component)) {

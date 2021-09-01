@@ -11,8 +11,12 @@
     height: age * 50,
   }
 
+  // 非依赖计算变量
+  var weight = age * 2
+
   function grow(e) {
     age ++
+    weight += 2
     emit('grow', age)
   }
 

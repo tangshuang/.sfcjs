@@ -169,14 +169,20 @@ export function parseJs(sourceCode) {
       vars[varName] = 1
       const varValue = value.trim()
       const varExp = varValue[0] === '{' ? `(${varValue})` : varValue
-      return `let ${varName} = SFC.reactive(() => ${varExp});`
+      return `let ${varName} = SFC.reactive(() => ${varExp}, true);`
+    }).replace(/var(.*?)=([\w\W]+?);$/, (_, name, value) => {
+      const varName = name.trim()
+      vars[varName] = 1
+      const varValue = value.trim()
+      const varExp = varValue[0] === '{' ? `(${varValue})` : varValue
+      return `var ${varName} = SFC.reactive(() => ${varExp});`
     })
   }
   const createUpdate = (code) => {
     return code.replace(/(.*?)=([\w\W]+?);$/, (_, name, value) => {
       const varName = name.trim()
       const varValue = value.trim()
-      return `${varName} = SFC.update(${varName}, () => ${varValue});`
+      return `${varName} = SFC.update(${varName}, (${varName}) => ${varValue});`
     })
   }
 
@@ -185,7 +191,7 @@ export function parseJs(sourceCode) {
     const token = tokens[i]
 
     // declare
-    if (token === 'let') {
+    if (token === 'let' || token === 'var') {
       const localScope = []
       const start = ['(', '[', '{']
       const end = [')', ']', '}']
@@ -235,10 +241,7 @@ export function parseJs(sourceCode) {
     // update
     else if (
       vars[token.trim()]
-      && (
-        (tokens[i + 1]?.trim() === '=' && tokens[i + 2]?.trim() !== '=')
-        || (MODIFIERS.includes(tokens[i + 1]))
-      )
+      && tokens[i + 1]?.trim() === '=' && tokens[i + 2]?.trim() !== '='
     ) {
       const localScope = []
       const start = ['(', '[', '{']
@@ -285,13 +288,72 @@ export function parseJs(sourceCode) {
         }
       }
     }
+    else if (
+      vars[token.trim()]
+      && (
+        MODIFIERS.includes(tokens[i + 1]?.trim())
+        || (tokens[i + 1]?.trim() === '' && MODIFIERS.includes(tokens[i + 2]?.trim()))
+      )
+    ) {
+      const varname = token.trim()
+
+      const localScope = []
+      const start = ['(', '[', '{']
+      const end = [')', ']', '}']
+      let updator = token
+
+      i ++
+      let next = tokens[i]
+      updator += next
+
+      const create = (updator) => {
+        const exp = updator.substr(0, updator.length - 1)
+        return `${varname} = SFC.update(${varname}, (${varname}) => ${exp})`
+      }
+
+      while (1) {
+        if (i >= len) {
+          code += create(updator)
+          break
+        }
+
+        // 结束标记
+        if (!localScope.length && next === ';') {
+          code += create(updator)
+          break
+        }
+
+        if (start.includes(next)) {
+          localScope.push(next)
+        }
+        else if (end.includes(next)) {
+          const index = end.indexOf(next)
+          const latest = localScope[localScope.length - 1]
+
+          if (latest !== start[index]) {
+            throw new Error(`${start[index]} 尚未关闭 at ${i} ${tokens[i - 1]} ${token} ${tokens[i + 1]}`)
+          }
+
+          localScope.pop()
+        }
+
+        i ++
+        next = tokens[i]
+        if (vars[next]) {
+          updator += `SFC.consume(${next})`
+        }
+        else {
+          updator += next
+        }
+      }
+    }
     // 一元操作
     else if (vars[token.trim()] && OPERATORS.includes(tokens[i + 1])) {
       i ++
       const operator = tokens[i]
       const varname = token.trim()
 
-      const exp = `${varname} = SFC.update(${varname}, () => { let _${varname} = SFC.consume(${varname}); return ${operator} _${varname} });`
+      const exp = `${varname} = SFC.update(${varname}, (${varname}) => ${operator} ${varname});`
       code += exp
     }
     // consume
