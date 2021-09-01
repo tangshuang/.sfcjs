@@ -1,6 +1,6 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual, isString, isInstanceOf, decideby, uniqueArray } from 'ts-fns'
+import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual, isString, isInstanceOf, decideby, isOneInArray } from 'ts-fns'
 import produce from 'immer'
 
 const components = {}
@@ -65,7 +65,6 @@ class Neure {
   // 实时信息，当前状态，用于下一次渲染
   key = null
   visible = true
-  keepAlive = null
   attrs = null
   props = null
   events = null
@@ -335,10 +334,114 @@ class Element {
       // 根据变化情况更新DOM
 
       const walk = (neure) => {
-        const { type, meta, children, deps } = neure
+        const { type, meta, children, deps, repeat, node, parentNode, args } = neure
+        if (isInstanceOf(neure, NeureList)) {
+          const {
+            meta: metaDeps,
+            children: childrenDeps,
+            repeat: repeatDeps,
+          } = deps
+
+          if (repeatDeps?.length && isOneInArray(changed, repeatDeps)) {
+
+          }
+        }
+        else if (type === FRAGMENT_NODE) {}
+        else if (type === TEXT_NODE) {}
+        else if (type === 'slot') {}
+        else if (isInstanceOf(type, Component)) {}
+        else {
+          const {
+            meta: metaDeps,
+            children: childrenDeps,
+          } = deps
+
+          if (metaDeps?.length && isOneInArray(changed, metaDeps)) {
+            const {
+              class: classGetter,
+              style: styleGetter,
+              visible: visibleGetter,
+              key: keyGetter,
+              attrs: attrsGetter,
+            } = meta
+
+            const key = keyGetter ? keyGetter(args) : null
+            const visible = visibleGetter ? visibleGetter(args) : true
+            const attrs = attrsGetter ? attrsGetter(args) : {}
+            const className = classGetter ? classGetter(args) : ''
+            const style = styleGetter ? styleGetter(args) : ''
+
+            // 重置样式相关
+            node.classList.forEach((className) => {
+              node.classList.remove(className)
+            })
+            node.style.cssText = ''
+
+            // 移除原有的不再需要的属性
+            if (neure.attrs) {
+              each(neure.attrs, (_, key) => {
+                if (!(key in attrs)) {
+                  node.removeAttribute(key)
+                }
+              })
+            }
+
+            each(attrs, (value, key) => {
+              node.setAttribute(key, value)
+            })
+
+            if (className) {
+              const classNames = className.split(' ')
+              classNames.forEach((item) => {
+                node.classList.add(item)
+              })
+            }
+
+            if (style) {
+              node.style.cssText = (node.style.cssText || '') + style
+            }
+
+            if (neure.visible !== visible) {
+              if (visible) {
+                let next = null
+                let sibling = neure.sibling
+                while (sibling) {
+                  if (sibling.visible && sibling.node) {
+                    next = sibling.node
+                    break
+                  }
+                  sibling = sibling.sibling
+                }
+                parentNode.insertBefore(node, next)
+              }
+              else {
+                parentNode.removeChild(node)
+              }
+            }
+
+            neure.set({
+              key,
+              visible,
+              attrs,
+              className,
+              style,
+            })
+          }
+
+          // TODO children
+        }
+
+        if (neure.child) {
+          walk(neure.child)
+        }
+
+        if (neure.sibling) {
+          walk(neure.sibling)
+        }
       }
+
       console.log(changed)
-      console.log(this.neure)
+      walk(this.neure)
 
       // const isReactive = (value) => {
       //   return value && typeof value === 'object' && value.$$typeof === REACTIVE_SYMBOL
@@ -632,7 +735,6 @@ function createNeure(type, meta, children, args) {
     attrs: attrsGetter,
     props: propsGetter,
     events: eventsGetter,
-    keepAlive: keepAliveGetter,
   } = meta
 
   const key = keyGetter ? keyGetter(args) : null
@@ -640,7 +742,6 @@ function createNeure(type, meta, children, args) {
   const attrs = attrsGetter ? attrsGetter(args) : {}
   const props = propsGetter ? propsGetter(args) : {}
   const events = eventsGetter ? eventsGetter(args) : {}
-  const keepAlive = keepAliveGetter ? keepAliveGetter(args) : false
   const className = classGetter ? classGetter(args) : ''
   const style = styleGetter ? styleGetter(args) : ''
 
@@ -653,7 +754,6 @@ function createNeure(type, meta, children, args) {
 
     key,
     visible,
-    keepAlive,
     attrs,
     props,
     events,

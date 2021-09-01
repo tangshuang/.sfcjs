@@ -1,4 +1,4 @@
-import { each, camelcase, resolveUrl } from '../utils'
+import { each, resolveUrl } from '../utils'
 import { tokenize } from './js-parser'
 
 // fork https://github.com/reworkcss/css/blob/master/lib/parse/index.js
@@ -816,9 +816,8 @@ export function parseCss(sourceCode, source, givenVars) {
         return
       }
 
-      const prop = camelcase(property)
       properties.push({
-        name: prop,
+        name: `'${property}'`,
         value: createValue(value),
       })
     })
@@ -880,9 +879,8 @@ export function parseCss(sourceCode, source, givenVars) {
       const [name, params] = exp.split(/(?=\()/)
       const properties = []
       each(declarations, ({ property, value }) => {
-        const prop = camelcase(property)
         const v = createFnValue(value, params)
-        const str = `${prop}: ${v}`
+        const str = `'${property}': ${v}`
         properties.push(str)
       })
       const fn = `const ${name} = ${params} => ({ ${properties.join(',')} })`

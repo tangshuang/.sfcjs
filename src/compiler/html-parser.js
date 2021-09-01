@@ -90,14 +90,6 @@ export function parseHtml(sourceCode, components, givenVars) {
           directives.push(['repeat', `{items:${items.trim()},item:'${item.trim()}',index:'${index.trim()}'}`, true])
           args.push(item, index)
         }
-        // else if (k === 'await') {
-        //   const [promise, data] = value.split(' then ')
-        //   directives.push(['await', `{await:${consumeVars(promise)},data:'${data}'}`])
-        //   args.push(data)
-        // }
-        else if (k === 'keep-alive') {
-          directives.push(['keepAlive', value])
-        }
         else if (k === 'key') {
           directives.push(['key', value])
         }
