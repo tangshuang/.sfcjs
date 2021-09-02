@@ -97,16 +97,6 @@ class Neure {
 
 class NeureList extends Neure {
   type = LIST_NODE
-  setList(getter) {
-    const neures = getter ? getter() : this.getter()
-    each(neures, (neure) => {
-      neure.parent = this
-    })
-
-    this.getter = getter
-    this.child = neures[0] || null
-    this.contents = neures
-  }
 }
 
 class TextNeure extends Neure {
@@ -339,12 +329,39 @@ class Element {
         if (type === LIST_NODE) {
           const {
             meta: metaDeps,
-            children: childrenDeps,
             repeat: repeatDeps,
           } = deps
+          const {
+            repeat: repeatGetter,
+            key: keyGetter,
+          } = meta
 
           if (repeatDeps?.length && isOneInArray(changed, repeatDeps)) {
+            const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
+            neure.deps.repeat = repeatDeps
 
+            const { repeat, ...others } = meta
+
+
+            // each(items, (item, index) => {
+            //   const args = {
+            //     [itemKey]: item,
+            //     [indexKey]: index,
+            //   }
+
+            //   const neure = initNeure(others, args)
+            //   if (neures.length) {
+            //     neures[neures.length - 1].sibling = neure
+            //   }
+            //   neures.push(neure)
+            // })
+            // each(neures, (neure) => {
+            //   neure.parent = neureList
+            // })
+
+            // neureList.getter = getter
+            // neureList.child = neures[0] || null
+            // neureList.contents = neures
           }
         }
         else if (type === TEXT_NODE) {
@@ -424,7 +441,6 @@ class Element {
               if (neure.visible !== visible) {
                 if (visible) {
                   const sibling = findSibling(neure)
-                  console.log(sibling)
                   parentNode.insertBefore(node, sibling)
                 }
                 else {
@@ -597,27 +613,31 @@ class Element {
           children: childrenGetter,
           args,
         })
-        neureList.setList(() => {
-          const neures = []
-          const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-          neureList.deps.repeat = repeatDeps
-          neureList.repeat = items
+        const neures = []
+        const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
+        neureList.deps.repeat = repeatDeps
+        neureList.repeat = items
 
-          each(items, (item, index) => {
-            const args = {
-              [itemKey]: item,
-              [indexKey]: index,
-            }
+        each(items, (item, index) => {
+          const args = {
+            [itemKey]: item,
+            [indexKey]: index,
+          }
 
-            const { repeat, ...others } = meta
-            const neure = initNeure(others, args)
-            if (neures.length) {
-              neures[neures.length - 1].sibling = neure
-            }
-            neures.push(neure)
-          })
-          return neures
+          const { repeat, ...others } = meta
+          const neure = initNeure(others, args)
+          if (neures.length) {
+            neures[neures.length - 1].sibling = neure
+          }
+          neures.push(neure)
         })
+        each(neures, (neure) => {
+          neure.parent = neureList
+        })
+
+        neureList.getter = getter
+        neureList.child = neures[0] || null
+        neureList.contents = neures
         return neureList
       }
 
