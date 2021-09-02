@@ -94,13 +94,12 @@
 
 <div class="app-{{name}}">
   <div>name: {{name}}</div>
-  <div>age: {{age}}</div>
   <div
     class="age"
     (class)="'age-' + age"
     (style)="age / 3 > 10 ? 'color: red;' : null"
     (if)="age > 10"
-  >{{age}}</div>
+  >age: {{age}}</div>
   <div (repeat)="color,index of colors" (if)="!!color" (key)="color">
     <i>{{index}}: {{color}}</i>
   </div>

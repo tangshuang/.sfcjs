@@ -139,7 +139,7 @@ class Element {
   relations = []
 
   _isCollecting = false
-  _scheduleUpdating = false
+  _queueUpdating = false
   _isMounted = false
 
   constructor(props) {
@@ -218,7 +218,7 @@ class Element {
     return value
   }
 
-  collect(fn) {
+  collect(fn, callback) {
     const { collector } = this
     const originCollector = new Set([...collector])
     this.collector.clear()
@@ -227,6 +227,9 @@ class Element {
     this._isCollecting = false
     const deps = [...collector]
     this.collector = originCollector
+    if (callback) {
+      callback(deps)
+    }
     return [res, deps]
   }
 
@@ -262,14 +265,15 @@ class Element {
   // }
 
   queueUpdate() {
-    if (this._scheduleUpdating) {
+    if (this._queueUpdating) {
       return
     }
-    this._scheduleUpdating = true
+    this._queueUpdating = true
     requestAnimationFrame(() => {
       const { queue } = this
 
       if (!queue.size) {
+        this._queueUpdating = false
         return
       }
 
@@ -356,79 +360,106 @@ class Element {
             children: childrenDeps,
           } = deps
 
+          let showOut = false
+
           if (metaDeps?.length && isOneInArray(changed, metaDeps)) {
-            const {
-              class: classGetter,
-              style: styleGetter,
-              visible: visibleGetter,
-              key: keyGetter,
-              attrs: attrsGetter,
-            } = meta
+            this.collect(() => {
+              const {
+                class: classGetter,
+                style: styleGetter,
+                visible: visibleGetter,
+                key: keyGetter,
+                attrs: attrsGetter,
+              } = meta
 
-            const key = keyGetter ? keyGetter(args) : null
-            const visible = visibleGetter ? visibleGetter(args) : true
-            const attrs = attrsGetter ? attrsGetter(args) : {}
-            const className = classGetter ? classGetter(args) : ''
-            const style = styleGetter ? styleGetter(args) : ''
+              const key = keyGetter ? keyGetter(args) : null
+              const visible = visibleGetter ? visibleGetter(args) : true
+              const attrs = attrsGetter ? attrsGetter(args) : {}
+              const className = classGetter ? classGetter(args) : ''
+              const style = styleGetter ? styleGetter(args) : ''
 
-            // 重置样式相关
-            node.classList.forEach((className) => {
-              node.classList.remove(className)
-            })
-            node.style.cssText = ''
+              // 从不显示变为显示
+              showOut = visible && !neure.visible
 
-            // 移除原有的不再需要的属性
-            if (neure.attrs) {
-              each(neure.attrs, (_, key) => {
-                if (!(key in attrs)) {
-                  node.removeAttribute(key)
-                }
+              // 重置样式相关
+              node.classList.forEach((className) => {
+                node.classList.remove(className)
               })
-            }
+              node.style.cssText = ''
 
-            each(attrs, (value, key) => {
-              node.setAttribute(key, value)
-            })
-
-            if (className) {
-              const classNames = className.split(' ')
-              classNames.forEach((item) => {
-                node.classList.add(item)
-              })
-            }
-
-            if (style) {
-              node.style.cssText = (node.style.cssText || '') + style
-            }
-
-            if (neure.visible !== visible) {
-              if (visible) {
-                let next = null
-                let sibling = neure.sibling
-                while (sibling) {
-                  if (sibling.visible && sibling.node) {
-                    next = sibling.node
-                    break
+              // 移除原有的不再需要的属性
+              if (neure.attrs) {
+                each(neure.attrs, (_, key) => {
+                  if (!(key in attrs)) {
+                    node.removeAttribute(key)
                   }
-                  sibling = sibling.sibling
-                }
-                parentNode.insertBefore(node, next)
+                })
               }
-              else {
-                parentNode.removeChild(node)
-              }
-            }
 
-            neure.set({
-              key,
-              visible,
-              attrs,
-              className,
-              style,
+              each(attrs, (value, key) => {
+                node.setAttribute(key, value)
+              })
+
+              if (className) {
+                const classNames = className.split(' ')
+                classNames.forEach((item) => {
+                  node.classList.add(item)
+                })
+              }
+
+              if (style) {
+                node.style.cssText = (node.style.cssText || '') + style
+              }
+
+              if (neure.visible !== visible) {
+                if (visible) {
+                  let next = null
+                  let sibling = neure.sibling
+                  while (sibling) {
+                    if (sibling.visible && sibling.node) {
+                      next = sibling.node
+                      break
+                    }
+                    sibling = sibling.sibling
+                  }
+                  parentNode.insertBefore(node, next)
+                }
+                else {
+                  parentNode.removeChild(node)
+                }
+              }
+
+              neure.set({
+                key,
+                visible,
+                attrs,
+                className,
+                style,
+              })
+            }, (deps) => {
+              neure.deps.meta = deps
             })
           }
 
           // TODO children
+
+          // 内部是文本（只有一个child）
+          if (childrenDeps?.length && neure.child?.type === TEXT_NODE && !neure.child?.sibling) {
+            this.collect(() => {
+              const text = neure.children()
+              neure.child.node.textContent = text
+              neure.child.text = text
+            }, (deps) => {
+              neure.deps.children = deps
+            })
+          }
+          // 从最开始的不显示，变为显示出来，需要新建child
+          else if (!neure.child && showOut) {
+            this.genChildren(neure)
+            if (neure.child) {
+              this.mountNeure(neure.child, neure.node)
+            }
+          }
         }
 
         if (neure.child) {
@@ -448,77 +479,78 @@ class Element {
       // }
 
       this.queue.clear()
+      this._queueUpdating = false
     })
   }
 
   // should must run after setup
   async mount(el) {
-    const mountNeure = async (neure, root) => {
-      const { type, attrs, events, element, child, sibling, text, visible, className, style } = neure
-
-      if (isInstanceOf(type, Component)) {
-        await element.$ready()
-        await element.setup(child)
-        await element.mount(root)
-      }
-      else if (type === FRAGMENT_NODE) {
-        if (child) {
-          await mountNeure(child, root)
-        }
-      }
-      else if (type === TEXT_NODE) {
-        const node = document.createTextNode(text)
-        if (visible) {
-          root.appendChild(node)
-        }
-        neure.node = node
-        neure.parentNode = root
-      }
-      else if (type === 'slot') {
-        const { slot } = this
-        // TODO
-      }
-      else {
-        const node = document.createElement(type)
-        each(attrs, (value, key) => {
-          node.setAttribute(key, value)
-        })
-        each(events, (fn, key) => {
-          node.addEventListener(key, fn)
-        })
-        if (className) {
-          const classNames = className.split(' ')
-          classNames.forEach((item) => {
-            node.classList.add(item)
-          })
-        }
-        if (style) {
-          node.style.cssText = (node.style.cssText || '') + style
-        }
-
-        if (visible) {
-          root.appendChild(node)
-        }
-
-        neure.node = node
-        if (child) {
-          await mountNeure(child, node)
-        }
-      }
-
-      neure.parentNode = root
-      if (sibling) {
-        await mountNeure(sibling, root)
-      }
-    }
-
-    await mountNeure(this.neure, el)
+    await this.mountNeure(this.neure, el)
 
     // TODO 创建css
     // TODO 挂载style
 
     this.root = el
     this._isMounted = true
+  }
+
+  async mountNeure(neure, root) {
+    const { type, attrs, events, element, child, sibling, text, visible, className, style } = neure
+
+    if (isInstanceOf(type, Component)) {
+      await element.$ready()
+      await element.setup(child)
+      await element.mount(root)
+    }
+    else if (type === FRAGMENT_NODE) {
+      if (child) {
+        await this.mountNeure(child, root)
+      }
+    }
+    else if (type === TEXT_NODE) {
+      const node = document.createTextNode(text)
+      if (visible) {
+        root.appendChild(node)
+      }
+      neure.node = node
+      neure.parentNode = root
+    }
+    else if (type === 'slot') {
+      const { slot } = this
+      // TODO
+    }
+    else {
+      const node = document.createElement(type)
+      each(attrs, (value, key) => {
+        node.setAttribute(key, value)
+      })
+      each(events, (fn, key) => {
+        node.addEventListener(key, fn)
+      })
+      if (className) {
+        const classNames = className.split(' ')
+        classNames.forEach((item) => {
+          node.classList.add(item)
+        })
+      }
+      if (style) {
+        node.style.cssText = (node.style.cssText || '') + style
+      }
+
+      if (visible) {
+        root.appendChild(node)
+      }
+
+      neure.node = node
+      if (child) {
+        await this.mountNeure(child, node)
+      }
+    }
+
+    neure.parentNode = root
+    if (sibling) {
+      await this.mountNeure(sibling, root)
+    }
   }
 
   destroy() {
