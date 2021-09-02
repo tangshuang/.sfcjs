@@ -49,13 +49,7 @@ const REACTIVE_SYMBOL = Symbol('reactive')
 const PROP_SYMBOL = Symbol('prop')
 // 节点类型
 const TEXT_NODE = Symbol('TextNode')
-const FRAGMENT_NODE = Symbol('Fragment')
-// 计划类型
-const DEPEND_TYPE = {
-  VAR: 'var',
-  RENDER: 'render',
-  DYE: 'dye',
-}
+const LIST_NODE = Symbol('ListNode')
 
 class Neure {
   // 固定信息
@@ -77,6 +71,7 @@ class Neure {
   child = null // 第一个字节点
   sibling = null // 第一个兄弟节点
   parent = null // 父节点
+
   // 记录依赖
   // 依赖分为两种，一种是meta的依赖，一种是children的依赖，两种依赖发生变化时，要更新的地方不同
   deps = {
@@ -84,6 +79,12 @@ class Neure {
     children: null,
     repeat: null,
   }
+
+  contents = null // fragment内部的内容
+  getter = null // 用于获取contents的函数
+  repeat = null
+
+  text = null
 
   constructor(data = {}) {
     this.set(data)
@@ -95,13 +96,8 @@ class Neure {
 }
 
 class NeureList extends Neure {
-  contents = null // fragment内部的内容
-  getter = null // 用于获取contents的函数
-  repeat = null
-
-  visible = true
-
-  setContents(getter) {
+  type = LIST_NODE
+  setList(getter) {
     const neures = getter ? getter() : this.getter()
     each(neures, (neure) => {
       neure.parent = this
@@ -111,12 +107,10 @@ class NeureList extends Neure {
     this.child = neures[0] || null
     this.contents = neures
   }
+}
 
-  // async mount(target) {
-  //   const { contents } = this
-  //   await Promise.all(contents.map(item => item.mount(target)))
-  //   await this.next()
-  // }
+class TextNeure extends Neure {
+  type = TEXT_NODE
 }
 
 // ---------------------------------------------
@@ -339,7 +333,10 @@ class Element {
 
       const walk = (neure) => {
         const { type, meta, children, deps, repeat, node, parentNode, args } = neure
-        if (isInstanceOf(neure, NeureList)) {
+
+        let notNeedWalkToChild = false
+
+        if (type === LIST_NODE) {
           const {
             meta: metaDeps,
             children: childrenDeps,
@@ -350,8 +347,21 @@ class Element {
 
           }
         }
-        else if (type === FRAGMENT_NODE) {}
-        else if (type === TEXT_NODE) {}
+        else if (type === TEXT_NODE) {
+          const {
+            children: childrenDeps,
+          } = deps
+
+          if (childrenDeps?.length && isOneInArray(changed, childrenDeps)) {
+            this.collect(() => {
+              const text = neure.children()
+              neure.node.textContent = text
+              neure.text = text
+            }, (deps) => {
+              neure.deps.children = deps
+            })
+          }
+        }
         else if (type === 'slot') {}
         else if (isInstanceOf(type, Component)) {}
         else {
@@ -413,16 +423,9 @@ class Element {
 
               if (neure.visible !== visible) {
                 if (visible) {
-                  let next = null
-                  let sibling = neure.sibling
-                  while (sibling) {
-                    if (sibling.visible && sibling.node) {
-                      next = sibling.node
-                      break
-                    }
-                    sibling = sibling.sibling
-                  }
-                  parentNode.insertBefore(node, next)
+                  const sibling = findSibling(neure)
+                  console.log(sibling)
+                  parentNode.insertBefore(node, sibling)
                 }
                 else {
                   parentNode.removeChild(node)
@@ -441,28 +444,22 @@ class Element {
             })
           }
 
-          // TODO children
-
-          // 内部是文本（只有一个child）
-          if (childrenDeps?.length && neure.child?.type === TEXT_NODE && !neure.child?.sibling) {
-            this.collect(() => {
-              const text = neure.children()
-              neure.child.node.textContent = text
-              neure.child.text = text
-            }, (deps) => {
-              neure.deps.children = deps
-            })
-          }
           // 从最开始的不显示，变为显示出来，需要新建child
-          else if (!neure.child && showOut) {
+          if (!neure.child && showOut) {
             this.genChildren(neure)
             if (neure.child) {
               this.mountNeure(neure.child, neure.node)
             }
+            notNeedWalkToChild = true
+          }
+          else if (childrenDeps?.length) {
+
+            // TODO children
+
           }
         }
 
-        if (neure.child) {
+        if (!notNeedWalkToChild && neure.child) {
           walk(neure.child)
         }
 
@@ -471,12 +468,8 @@ class Element {
         }
       }
 
-      console.log(changed)
+      // console.log(changed)
       walk(this.neure)
-
-      // const isReactive = (value) => {
-      //   return value && typeof value === 'object' && value.$$typeof === REACTIVE_SYMBOL
-      // }
 
       this.queue.clear()
       this._queueUpdating = false
@@ -502,16 +495,14 @@ class Element {
       await element.setup(child)
       await element.mount(root)
     }
-    else if (type === FRAGMENT_NODE) {
+    else if (type === LIST_NODE) {
       if (child) {
         await this.mountNeure(child, root)
       }
     }
     else if (type === TEXT_NODE) {
       const node = document.createTextNode(text)
-      if (visible) {
-        root.appendChild(node)
-      }
+      root.appendChild(node)
       neure.node = node
       neure.parentNode = root
     }
@@ -579,6 +570,18 @@ class Element {
     this.neure = neure
   }
 
+  t(textGetter) {
+    const [text, deps] = this.collect(() => textGetter())
+    const node = new TextNeure({
+      children: textGetter,
+      text,
+      deps: {
+        children: deps,
+      },
+    })
+    return node
+  }
+
   h(type, meta, childrenGetter) {
     if (typeof meta === 'function') {
       childrenGetter = meta
@@ -590,12 +593,11 @@ class Element {
 
       if (repeatGetter) {
         const neureList = new NeureList({
-          type: FRAGMENT_NODE,
           meta,
           children: childrenGetter,
           args,
         })
-        neureList.setContents(() => {
+        neureList.setList(() => {
           const neures = []
           const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
           neureList.deps.repeat = repeatDeps
@@ -626,24 +628,12 @@ class Element {
     const [neure, metaDeps] = this.collect(() => initNeure(meta))
     neure.deps.meta = metaDeps
 
-    if (isInstanceOf(neure, NeureList)) {
+    if (neure.type === LIST_NODE) {
       each(neure.contents, this.genChildren.bind(this))
     }
     else {
       this.genChildren(neure)
     }
-
-    // if (
-    //   (neure.deps.meta && neure.deps.meta.length)
-    //   || (neure.deps.children && neure.deps.children.length)
-    //   || (neure.deps.repeat && neure.deps.repeat.length)
-    // ) {
-    //   this.relations.push({
-    //     type: DEPEND_TYPE.RENDER,
-    //     ...neure.deps,
-    //     neure,
-    //   })
-    // }
 
     return neure
   }
@@ -658,30 +648,19 @@ class Element {
       return
     }
 
-    const [sub, childrenDeps] = this.collect(() => children(args))
-    neure.deps.children = childrenDeps
+    const subs = children(args)
+    subs.reduce((backer, item) => {
+      item.parent = parent
+      if (!parent.child) {
+        parent.child = item
+      }
 
-    if (isString(sub)) {
-      setTextNode(sub, neure)
-    }
-    else if (isInstanceOf(sub, Neure)) {
-      setNeureNode(sub, neure)
-    }
-    else if (isArray(sub)) {
-      sub.reduce((backer, item) => {
-        if (isInstanceOf(item, Neure)) {
-          setNeureNode(item, neure, backer)
-        }
-        else if (isString(item)) {
-          setTextNode(item, neure, backer)
-        }
-        return item
-      }, null)
-    }
-  }
-
-  updateNode(neure) {
-    console.log(neure, type)
+      if (backer) {
+        backer.sibling = item
+      }
+      return item
+    }, null)
+    neure.child = subs[0]
   }
 
   r(name, ...args) {}
@@ -729,6 +708,7 @@ export function initComponent(absUrl, meta = {}) {
 
     const inside = Object.freeze({
       h: element.h.bind(element),
+      t: element.t.bind(element),
       r: element.r.bind(element),
       reactive: element.reactive.bind(element),
       consume: element.consume.bind(element),
@@ -801,24 +781,6 @@ function createNeure(type, meta, children, args) {
   return neure
 }
 
-// function updateElement(element, props = {}) {
-//   const keys = Object.keys(props)
-//   const oldProps = element.props
-
-//   const changed = keys.filter(key => props[key] !== oldProps[key])
-//   each(changed, (key) => {
-//     const value = props[key]
-//     element.queue.add({
-//       $$typeof: PROP_SYMBOL,
-//       key,
-//       value,
-//     })
-//   })
-//   if (changed.length) {
-//     element.queueUpdate()
-//   }
-// }
-
 function uniqueDeps(deps) {
   return deps.filter((item, i) => {
     if (deps.indexOf(item) !== i) {
@@ -841,32 +803,28 @@ function inDeps(dep, deps) {
   return false
 }
 
-function setTextNode(text, parent, backer) {
-  const node = new Neure({
-    type: TEXT_NODE,
-    parent,
-  })
+function findSibling(neure) {
+  const sibling = neure.sibling
 
-  node.text = text
-
-  if (backer) {
-    backer.sibling = node
-  }
-  if (!parent.child) {
-    parent.child = node
+  if (!sibling) {
+    return null
   }
 
-  node.backer = backer
-  return node
-}
+  if (sibling.type === LIST_NODE) {
+    const child = sibling.child
+    if (child.visible) {
+      return child.node
+    }
 
-function setNeureNode(node, parent, backer) {
-  node.parent = parent
-  if (backer) {
-    backer.sibling = node
+    const next = findSibling(child)
+    if (next) {
+      return next
+    }
   }
-  if (!parent.child) {
-    parent.child = node
+
+  if (sibling.visible) {
+    return neure.sibling.node
   }
-  node.backer = backer
+
+  return findSibling(sibling)
 }

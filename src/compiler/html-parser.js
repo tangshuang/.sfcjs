@@ -146,11 +146,15 @@ export function parseHtml(sourceCode, components, givenVars) {
       [data, args] = create(props)
     }
 
+    const subArgs = args.filter(item => !!item).join(',')
+    const subArgsStr = subArgs ? `{${subArgs}}` : ''
+
     if (children.length && children.some(item => !!item)) {
       each(children, (child) => {
         if (typeof child === 'string') {
           const text = interpolate(child)
-          subs.push(text)
+          const node = `SFC.t(() => ${text})`
+          subs.push(node)
         }
         else {
           const node = build(child)
@@ -162,9 +166,7 @@ export function parseHtml(sourceCode, components, givenVars) {
     const componentName = camelcase(type, true)
     const component = components && components[componentName] ? componentName : `'${type}'`
 
-    const subArgs = args.filter(item => !!item).join(',')
-    const subArgsStr = subArgs ? `{${subArgs}}` : ''
-    const inner = subs.length ? `(${subArgsStr}) =>` + (subs.length > 1 ? `[${subs.join(',')}]` : subs[0]) : null
+    const inner = subs.length ? `(${subArgsStr}) =>` + `[${subs.join(',')}]` : null
     const params = [component, data, inner].filter(item => !!item)
     const code = `SFC.h(${params.join(',')})`
     return code
