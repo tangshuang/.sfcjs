@@ -73,15 +73,10 @@ class Neure {
   parent = null // 父节点
 
   // 记录依赖
-  // 依赖分为两种，一种是meta的依赖，一种是children的依赖，两种依赖发生变化时，要更新的地方不同
-  deps = {
-    meta: null,
-    children: null,
-    repeat: null,
-  }
+  // 不同的类型依赖生效的域不同，普通节点对meta生效，文本节点对children生效，list节点对list生效
+  deps = []
 
-  contents = null // fragment内部的内容
-  getter = null // 用于获取contents的函数
+  list = null // fragment内部的内容
   repeat = null
 
   text = null
@@ -338,10 +333,9 @@ class Element {
 
           if (repeatDeps?.length && isOneInArray(changed, repeatDeps)) {
             const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-            neure.deps.repeat = repeatDeps
+            neure.deps = repeatDeps
 
             const { repeat, ...others } = meta
-
 
             // each(items, (item, index) => {
             //   const args = {
@@ -359,37 +353,27 @@ class Element {
             //   neure.parent = neureList
             // })
 
-            // neureList.getter = getter
             // neureList.child = neures[0] || null
-            // neureList.contents = neures
+            // neureList.list = neures
           }
         }
         else if (type === TEXT_NODE) {
-          const {
-            children: childrenDeps,
-          } = deps
-
-          if (childrenDeps?.length && isOneInArray(changed, childrenDeps)) {
+          if (deps?.length && isOneInArray(changed, deps)) {
             this.collect(() => {
               const text = neure.children()
               neure.node.textContent = text
               neure.text = text
             }, (deps) => {
-              neure.deps.children = deps
+              neure.deps = deps
             })
           }
         }
         else if (type === 'slot') {}
         else if (isInstanceOf(type, Component)) {}
         else {
-          const {
-            meta: metaDeps,
-            children: childrenDeps,
-          } = deps
-
           let showOut = false
 
-          if (metaDeps?.length && isOneInArray(changed, metaDeps)) {
+          if (deps?.length && isOneInArray(changed, deps)) {
             this.collect(() => {
               const {
                 class: classGetter,
@@ -456,7 +440,7 @@ class Element {
                 style,
               })
             }, (deps) => {
-              neure.deps.meta = deps
+              neure.deps = deps
             })
           }
 
@@ -467,11 +451,6 @@ class Element {
               this.mountNeure(neure.child, neure.node)
             }
             notNeedWalkToChild = true
-          }
-          else if (childrenDeps?.length) {
-
-            // TODO children
-
           }
         }
 
@@ -592,7 +571,7 @@ class Element {
       children: textGetter,
       text,
       deps: {
-        children: deps,
+        text: deps,
       },
     })
     return node
@@ -615,7 +594,7 @@ class Element {
         })
         const neures = []
         const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-        neureList.deps.repeat = repeatDeps
+        neureList.deps = repeatDeps
         neureList.repeat = items
 
         each(items, (item, index) => {
@@ -635,9 +614,8 @@ class Element {
           neure.parent = neureList
         })
 
-        neureList.getter = getter
         neureList.child = neures[0] || null
-        neureList.contents = neures
+        neureList.list = neures
         return neureList
       }
 
@@ -646,10 +624,10 @@ class Element {
     }
 
     const [neure, metaDeps] = this.collect(() => initNeure(meta))
-    neure.deps.meta = metaDeps
+    neure.deps = metaDeps
 
     if (neure.type === LIST_NODE) {
-      each(neure.contents, this.genChildren.bind(this))
+      each(neure.list, this.genChildren.bind(this))
     }
     else {
       this.genChildren(neure)
