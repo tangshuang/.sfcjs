@@ -1,5 +1,6 @@
-import { parse } from '@babel/parser'
 import {
+  parse,
+  traverse,
   isForStatement,
   isForInStatement,
   isForOfStatement,
@@ -7,33 +8,49 @@ import {
   isFunctionDeclaration,
   isWhileStatement,
   isDoWhileStatement,
-} from './babel-types-is'
-import {
-  traverse,
-} from './babel-traverse'
+} from '../babel'
+
+const INSERT_TYPE = 1
+const REMOVE_TYPE = 0
 
 export function prettyJsCode(code) {
-  const { insertions, removals } = process(code, parse(code, {
-    tokens: true,
-    sourceType: 'unambiguous',
-  }))
+  const ast = parse(code, {
+    parserOpts: {
+      tokens: true,
+      sourceType: 'unambiguous',
+    },
+  })
 
-  const chars = code.split('')
-  for (let i = insertions.length; i --; ) {
-    const { index, content } = insertions[i]
-    chars.splice(index, 0, content)
-  }
+  const founds = process(code, ast)
 
-  const output = chars.join('')
+  console.log(founds, ast.tokens)
 
-  return output
+  return code
 }
 
 /** automatic-semicolon-insertion */
 function process(source, ast) {
   const tokens = ast.tokens;
-  const insertions = [];
-  const removals = [];
+  const founds = [];
+
+  function insert(index, content, token) {
+    founds.push({
+      type: INSERT_TYPE,
+      index,
+      content,
+      token,
+    })
+  }
+
+  function remove(start, end, token) {
+    founds.push({
+      type: REMOVE_TYPE,
+      start,
+      end,
+      token,
+    })
+  }
+
   traverse(ast, {
     VariableDeclaration(path) {
       const {
@@ -105,7 +122,7 @@ function process(source, ast) {
         !isForInStatement(parent) &&
         !isWhileStatement(parent) &&
         !isDoWhileStatement(parent)) {
-        remove(startOfNode(node), endOfNode(node));
+        remove(startOfNode(node), endOfNode(node), firstTokenOfNode(node));
       }
     },
     ClassBody(path) {
@@ -115,17 +132,14 @@ function process(source, ast) {
       checkClassBodyForSemicolon(tokenAfterToken(lastTokenOfNode(path.node)));
     },
   });
-  return {
-    insertions,
-    removals
-  };
+
   /**
    * Checks a node to see if it's followed by a semicolon.
    */
   function checkForSemicolon(node) {
     const lastToken = lastTokenOfNode(node);
     if (sourceOfToken(lastToken) !== ';') {
-      insert(endOfToken(lastToken), ';');
+      insert(endOfToken(lastToken), ';', lastToken);
     }
   }
   /**
@@ -135,7 +149,7 @@ function process(source, ast) {
     while (token) {
       const source = sourceOfToken(token);
       if (source === ';') {
-        remove(startOfToken(token), endOfToken(token));
+        remove(startOfToken(token), endOfToken(token), token);
       } else {
         break;
       }
@@ -177,20 +191,6 @@ function process(source, ast) {
     return source.slice(token.start, token.end);
   }
 
-  function insert(index, content) {
-    insertions.push({
-      index,
-      content
-    });
-  }
-
-  function remove(start, end) {
-    removals.push({
-      start,
-      end
-    });
-  }
-
   function startOfNode(node) {
     return node.start;
   }
@@ -206,4 +206,6 @@ function process(source, ast) {
   function endOfToken(token) {
     return token.end;
   }
+
+  return founds
 }
