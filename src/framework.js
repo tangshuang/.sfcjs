@@ -45,11 +45,10 @@ export function define(absUrl, deps, fn) {
 // ---------------------------------------------
 
 // 数据类型
-const REACTIVE_SYMBOL = Symbol('reactive')
-const PROP_SYMBOL = Symbol('prop')
+const REACTIVE_TYPE = Symbol('reactive')
+const PROP_TYPE = Symbol('prop')
 // 节点类型
-const TEXT_NODE = Symbol('TextNode')
-const LIST_NODE = Symbol('ListNode')
+const TEXT_NODE = Symbol('text')
 
 class Neure {
   // 固定信息
@@ -77,9 +76,9 @@ class Neure {
   deps = []
 
   list = null // fragment内部的内容
-  repeat = null
+  repeat = null // repeat数据
 
-  text = null
+  text = null // TextNode内部的文本
 
   constructor(data = {}) {
     this.set(data)
@@ -90,13 +89,9 @@ class Neure {
   }
 }
 
-class NeureList extends Neure {
-  type = LIST_NODE
-}
+class NeureList extends Neure {}
 
-class TextNeure extends Neure {
-  type = TEXT_NODE
-}
+class TextNeure extends Neure {}
 
 // ---------------------------------------------
 
@@ -160,7 +155,7 @@ class Element {
     })
 
     var reactor = {
-      $$typeof: REACTIVE_SYMBOL,
+      $$typeof: REACTIVE_TYPE,
       value: create(value),
       getter,
     }
@@ -180,7 +175,7 @@ class Element {
       return reactor
     }
 
-    if (reactor.$$typeof !== REACTIVE_SYMBOL) {
+    if (reactor.$$typeof !== REACTIVE_TYPE) {
       return reactor
     }
 
@@ -217,7 +212,7 @@ class Element {
       return getter()
     }
 
-    if (reactor.$$typeof !== REACTIVE_SYMBOL) {
+    if (reactor.$$typeof !== REACTIVE_TYPE) {
       return getter()
     }
 
@@ -313,7 +308,6 @@ class Element {
         })
       })
 
-
       // 根据变化情况更新DOM
 
       const walk = (neure) => {
@@ -321,43 +315,83 @@ class Element {
 
         let notNeedWalkToChild = false
 
-        if (type === LIST_NODE) {
-          const {
-            meta: metaDeps,
-            repeat: repeatDeps,
-          } = deps
-          const {
-            repeat: repeatGetter,
-            key: keyGetter,
-          } = meta
-
-          if (repeatDeps?.length && isOneInArray(changed, repeatDeps)) {
+        if (isInstanceOf(neure, NodeList)) {
+          if (deps.length && isOneInArray(changed, deps)) {
+            const neureList = neure
+            const {
+              repeat: prevItems,
+              list: prevList,
+            } = neureList
+            const {
+              repeat: repeatGetter,
+            } = meta
             const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-            neure.deps = repeatDeps
 
+            neureList.deps = repeatDeps
+            neureList.repeat = items
+
+            const neures = []
             const { repeat, ...others } = meta
 
-            // each(items, (item, index) => {
-            //   const args = {
-            //     [itemKey]: item,
-            //     [indexKey]: index,
-            //   }
+            if (!isShallowEqual(items, prevItems)) {
+              each(items, (item, index) => {
+                const prevIndex = prevItems.indexOf(item)
+                if (prevIndex > -1) {
+                  neures.push(prevList[index])
+                  prevList.splice(index, 1) // 从原来的列表中删除
+                  return
+                }
 
-            //   const neure = initNeure(others, args)
-            //   if (neures.length) {
-            //     neures[neures.length - 1].sibling = neure
-            //   }
-            //   neures.push(neure)
-            // })
-            // each(neures, (neure) => {
-            //   neure.parent = neureList
-            // })
+                const args = {
+                  [itemKey]: item,
+                  [indexKey]: index,
+                }
+                const neure = this.initNeure(type, others, children, args)
+                if (neures.length) {
+                  neures[neures.length - 1].sibling = neure
+                }
+                neures.push(neure)
+              })
+              each(neures, (neure) => {
+                neure.parent = neureList
+              })
 
-            // neureList.child = neures[0] || null
-            // neureList.list = neures
+              neureList.child = neures[0] || null
+              neureList.list = neures
+
+              const sibling = decideby(() => {
+                const firstNode = prevList.find(item => item.visible && item.node)
+                if (firstNode) {
+                  return firstNode
+                }
+                const sibling = findSibling(neureList)
+                return sibling
+              })
+              each(neures, (neure) => {
+                if (neure.node) {
+                  parentNode.insertBefore(neure.node, sibling)
+                }
+                else {
+                  this.mountNeure(neure, parentNode)
+                }
+              })
+
+              // 移除已经拥有用的DOM节点
+              const removeChildren = (list) => {
+                each(list, (item) => {
+                  if (item.node) {
+                    parentNode.remove(item.node)
+                  }
+                  else if (isInstanceOf(item, NeureList) && item.list) {
+                    removeChildren(item.list)
+                  }
+                })
+              }
+              removeChildren(prevList)
+            }
           }
         }
-        else if (type === TEXT_NODE) {
+        else if (isInstanceOf(neure, TextNeure)) {
           if (deps?.length && isOneInArray(changed, deps)) {
             this.collect(() => {
               const text = neure.children()
@@ -490,12 +524,12 @@ class Element {
       await element.setup(child)
       await element.mount(root)
     }
-    else if (type === LIST_NODE) {
+    else if (isInstanceOf(neure, NeureList)) {
       if (child) {
         await this.mountNeure(child, root)
       }
     }
-    else if (type === TEXT_NODE) {
+    else if (isInstanceOf(neure, TextNeure)) {
       const node = document.createTextNode(text)
       root.appendChild(node)
       neure.node = node
@@ -568,11 +602,10 @@ class Element {
   t(textGetter) {
     const [text, deps] = this.collect(() => textGetter())
     const node = new TextNeure({
+      type: TEXT_NODE,
       children: textGetter,
       text,
-      deps: {
-        text: deps,
-      },
+      deps,
     })
     return node
   }
@@ -583,56 +616,57 @@ class Element {
       meta = {}
     }
 
-    const initNeure = (meta = {}, args) => {
-      const { repeat: repeatGetter } = meta
-
-      if (repeatGetter) {
-        const neureList = new NeureList({
-          meta,
-          children: childrenGetter,
-          args,
-        })
-        const neures = []
-        const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-        neureList.deps = repeatDeps
-        neureList.repeat = items
-
-        each(items, (item, index) => {
-          const args = {
-            [itemKey]: item,
-            [indexKey]: index,
-          }
-
-          const { repeat, ...others } = meta
-          const neure = initNeure(others, args)
-          if (neures.length) {
-            neures[neures.length - 1].sibling = neure
-          }
-          neures.push(neure)
-        })
-        each(neures, (neure) => {
-          neure.parent = neureList
-        })
-
-        neureList.child = neures[0] || null
-        neureList.list = neures
-        return neureList
-      }
-
-      const neure = createNeure(type, meta, childrenGetter, args)
-      return neure
-    }
-
-    const [neure, metaDeps] = this.collect(() => initNeure(meta))
+    const [neure, metaDeps] = this.collect(() => this.initNeure(type, meta, childrenGetter))
     neure.deps = metaDeps
 
-    if (neure.type === LIST_NODE) {
+    if (isInstanceOf(neure, NeureList)) {
       each(neure.list, this.genChildren.bind(this))
     }
     else {
       this.genChildren(neure)
     }
 
+    return neure
+  }
+
+  initNeure(type, meta = {}, childrenGetter, args) {
+    const { repeat: repeatGetter } = meta
+
+    if (repeatGetter) {
+      const neureList = new NeureList({
+        type,
+        meta,
+        children: childrenGetter,
+        args,
+      })
+      const neures = []
+      const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
+      neureList.deps = repeatDeps
+      neureList.repeat = items
+
+      const { repeat, ...others } = meta
+
+      each(items, (item, index) => {
+        const args = {
+          [itemKey]: item,
+          [indexKey]: index,
+        }
+        const neure = this.initNeure(type, others, childrenGetter, args)
+        if (neures.length) {
+          neures[neures.length - 1].sibling = neure
+        }
+        neures.push(neure)
+      })
+      each(neures, (neure) => {
+        neure.parent = neureList
+      })
+
+      neureList.child = neures[0] || null
+      neureList.list = neures
+      return neureList
+    }
+
+    const neure = createNeure(type, meta, childrenGetter, args)
     return neure
   }
 
@@ -686,7 +720,7 @@ export function initComponent(absUrl, meta = {}) {
           const value = props[key]
           if (element._isCollecting) {
             element.collector.add({
-              $$typeof: PROP_SYMBOL,
+              $$typeof: PROP_TYPE,
               key,
               value,
             })
@@ -784,7 +818,7 @@ function uniqueDeps(deps) {
     if (deps.indexOf(item) !== i) {
       return false
     }
-    if (item.$$typeof === PROP_SYMBOL && deps.findIndex(dep => dep.$$typeof === PROP_SYMBOL && dep.key === item.key) !== i) {
+    if (item.$$typeof === PROP_TYPE && deps.findIndex(dep => dep.$$typeof === PROP_TYPE && dep.key === item.key) !== i) {
       return false
     }
     return true
@@ -795,7 +829,7 @@ function inDeps(dep, deps) {
   if (deps.includes(dep)) {
     return true
   }
-  if (dep.$$typeof === PROP_SYMBOL && deps.some(item => item.$$typeof === PROP_SYMBOL && item.key === dep.key)) {
+  if (dep.$$typeof === PROP_TYPE && deps.some(item => item.$$typeof === PROP_TYPE && item.key === dep.key)) {
     return true
   }
   return false
@@ -808,7 +842,7 @@ function findSibling(neure) {
     return null
   }
 
-  if (sibling.type === LIST_NODE) {
+  if (isInstanceOf(sibling, NeureList)) {
     const child = sibling.child
     if (child.visible) {
       return child.node

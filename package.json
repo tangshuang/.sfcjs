@@ -2,8 +2,9 @@
   "name": "sfcjs",
   "version": "0.0.1",
   "description": "Cool runtime single file component",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
+    "prepublishOnly": "npm run build",
     "dev": "webpack --watch",
     "build": "NODE_ENV=production webpack"
   },
