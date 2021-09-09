@@ -9,8 +9,6 @@ const defines = new DefinePlugin({
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
 })
 const fallback = {
-  fs: 'empty',
-  process: require.resolve('process/browser'),
 }
 const optimization = {
   usedExports: true,
