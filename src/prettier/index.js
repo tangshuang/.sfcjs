@@ -23,9 +23,19 @@ export function prettyJsCode(code) {
 
   const founds = process(code, ast)
 
-  console.log(founds, ast.tokens)
-
-  return code
+  const chars = code.split('')
+  for (let i = founds.length; i --; ) {
+    const item = founds[i]
+    if (item.type === INSERT_TYPE) {
+      chars.splice(item.index, 0, item.content)
+    }
+    else if (item.type === REMOVE_TYPE) {
+      chars.splice(item.start, item.end - item.start)
+    }
+  }
+  const output = chars.join('')
+  console.log(output)
+  return output
 }
 
 /** automatic-semicolon-insertion */
