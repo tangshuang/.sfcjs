@@ -1,7 +1,7 @@
 import { parseCss } from './css-parser'
 import { parseJs } from './js-parser'
 import { parseHtml } from './html-parser'
-import { clearComments, resolveUrl } from '../utils'
+import { resolveUrl } from '../utils'
 
 export function parseComponent(text, source, options = {}) {
   let jsSource = {}
@@ -9,13 +9,11 @@ export function parseComponent(text, source, options = {}) {
 
   const html = text
     .replace(/<script.*?>([\w\W]*?)<\/script>\n?/gmi, (_, sourceCode) => {
-      // sourceCode = clearComments(sourceCode)
       const jsSourceCode = options.prettyJs ? options.prettyJs(sourceCode) : sourceCode
       jsSource = parseJs(jsSourceCode)
       return ''
     })
     .replace(/<style>([\w\W]*?)<\/style>\n?/gmi, (_, sourceCode) => {
-      // sourceCode = clearComments(sourceCode)
       cssText = options.prettyCss ? options.prettyCss(sourceCode) : sourceCode
       return ''
     })

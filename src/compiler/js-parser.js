@@ -182,13 +182,51 @@ export function parseJs(sourceCode) {
     return code.replace(/(.*?)=([\w\W]+?);$/, (_, name, value) => {
       const varName = name.trim()
       const varValue = value.trim()
-      return `${varName} = SFC.update(${varName}, (${varName}) => ${varValue});`
+      return `${varName} = SFC.update(${varName}, ${varName} => ${varValue});`
     })
   }
 
   let code = ''
   for (let i = 0, len = tokens.length; i < len; i ++) {
     const token = tokens[i]
+
+    // 匹配对应的token
+    // next为一个函数，参数为一个函数，执行该参数函数相当于执行下一个索引的token的match
+    const find = (index, determine, ignore, next) => {
+      let curr = index
+      let nextToken = tokens[curr]?.trim()
+
+      while (
+        (typeof ignore === 'function' && ignore(nextToken))
+        || (Array.isArray(ignore) && ignore.includes(nextToken))
+        || (typeof ignore === 'string' && ignore === nextToken)
+      ) {
+        curr ++
+        nextToken = tokens[curr]?.trim()
+      }
+
+      if (
+        (typeof determine === 'function' && determine(nextToken))
+        || (Array.isArray(determine) && determine.includes(nextToken))
+        || (typeof determine === 'string' && determine === nextToken)
+      ) {
+        if (next) {
+          const nextMatch = (determine, ignore, next) => {
+            return match(curr + 1, determine, ignore, next)
+          }
+          const res = next(nextMatch)
+          if (res) {
+            return curr
+          }
+        }
+        else {
+          return curr
+        }
+      }
+
+      return -1
+    }
+    const match = (...args) => find(...args) > -1
 
     // declare
     if (token === 'let' || token === 'var') {
@@ -240,8 +278,7 @@ export function parseJs(sourceCode) {
     }
     // update
     else if (
-      vars[token.trim()]
-      && tokens[i + 1]?.trim() === '=' && tokens[i + 2]?.trim() !== '='
+      vars[token.trim()] && match(i + 1, '=', '', nextMatch => !nextMatch('='))
     ) {
       const localScope = []
       const start = ['(', '[', '{']
@@ -288,12 +325,9 @@ export function parseJs(sourceCode) {
         }
       }
     }
+    // a += 1
     else if (
-      vars[token.trim()]
-      && (
-        MODIFIERS.includes(tokens[i + 1]?.trim())
-        || (tokens[i + 1]?.trim() === '' && MODIFIERS.includes(tokens[i + 2]?.trim()))
-      )
+      vars[token.trim()] && match(i + 1, token => MODIFIERS.includes(token), '')
     ) {
       const varname = token.trim()
 
@@ -308,7 +342,7 @@ export function parseJs(sourceCode) {
 
       const create = (updator) => {
         const exp = updator.substr(0, updator.length - 1)
-        return `${varname} = SFC.update(${varname}, (${varname}) => ${exp})`
+        return `${varname} = SFC.update(${varname}, ${varname} => ${exp});`
       }
 
       while (1) {
@@ -348,12 +382,15 @@ export function parseJs(sourceCode) {
       }
     }
     // 一元操作
-    else if (vars[token.trim()] && OPERATORS.includes(tokens[i + 1])) {
-      i ++
+    // a ++
+    else if (
+      vars[token.trim()] && match(i + 1, token => OPERATORS.includes(token), '')
+    ) {
+      i = find(i + 1, token => OPERATORS.includes(token), '')
       const operator = tokens[i]
       const varname = token.trim()
 
-      const exp = `${varname} = SFC.update(${varname}, (${varname}) => ${operator} ${varname});`
+      const exp = `${varname} = SFC.update(${varname}, ${varname} => (${varname} ${operator},${varname}));`
       code += exp
     }
     // consume

@@ -9,6 +9,11 @@ const defines = new DefinePlugin({
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
 })
 
+const optimization = {
+  usedExports: true,
+  sideEffects: true,
+}
+
 module.exports = [
   {
     mode,
@@ -27,6 +32,7 @@ module.exports = [
     plugins: [
       defines,
     ],
+    optimization,
   },
   {
     mode,
@@ -43,5 +49,6 @@ module.exports = [
     plugins: [
       defines,
     ],
+    optimization,
   },
 ]
