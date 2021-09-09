@@ -8,7 +8,10 @@ const alias = {
 const defines = new DefinePlugin({
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
 })
-
+const fallback = {
+  fs: 'empty',
+  process: require.resolve('process/browser'),
+}
 const optimization = {
   usedExports: true,
   sideEffects: true,
@@ -28,6 +31,7 @@ module.exports = [
     },
     resolve: {
       alias,
+      fallback,
     },
     plugins: [
       defines,
@@ -45,6 +49,7 @@ module.exports = [
     },
     resolve: {
       alias,
+      fallback,
     },
     plugins: [
       defines,
