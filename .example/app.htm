@@ -33,7 +33,7 @@
   }
 
   .age {
-    color: rbg(var('{{ age * 5 }}'), var('{{ age * 10 }}'), var('{{ age * 3 }}'));
+    color: rgb(var('{{ age * 5 > 255 ? 255 : age * 5 }}'), var('{{ age * 10 > 255 ? 255 : age * 10 }}'), var('{{ age * 3 > 255 ? 255 : age * 3 }}'));
   }
 
   /* @fns {
@@ -99,7 +99,7 @@
   <div
     class="age"
     (class)="'age-' + age"
-    (style)="age > 10 ? 'color: red;' : null"
+    (style)="age > 13 ? 'font-weight: bold;' : null"
     (if)="age > 10"
   >age: {{age}}</div>
   <div (repeat)="color,index of colors" (if)="!!color" (key)="color">

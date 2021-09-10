@@ -326,6 +326,22 @@ class Element {
         })
       })
 
+
+      // 重新构建样式
+      if (this.brushes && this.brushesAt) {
+        const brushesContent = this.brushes.map((brush) => {
+          const { id, getter, deps, value } = brush
+          if (deps.length && isOneInArray(changed, deps)) {
+            const [next, nextDeps] = this.collect(getter)
+            brush.value = next
+            brush.deps = nextDeps
+            return `--${id}: ${next};`
+          }
+          return `--${id}: ${value};`
+        }).join('\n')
+        this.brushesAt.textContent = `:host {\n${brushesContent}\n}`
+      }
+
       // 根据变化情况更新DOM
 
       const walk = (neure) => {
