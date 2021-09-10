@@ -1,4 +1,4 @@
-import { parse, generate, types } from '../babel'
+import { parse, generate } from '../babel'
 
 export function prettyJsCode(code) {
   const ast = parse(code, {

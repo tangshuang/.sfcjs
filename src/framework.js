@@ -1,6 +1,11 @@
 import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
 import { getComponentCode } from './main'
-import { createProxy, isObject, isArray, remove, assign, isUndefined, isShallowEqual, isString, isInstanceOf, decideby, isOneInArray } from 'ts-fns'
+import {
+  createProxy, isObject, isArray,
+  remove, assign, isUndefined, isShallowEqual, isString,
+  isInstanceOf, decideby, isOneInArray, isFunction,
+  createRandomString,
+} from 'ts-fns'
 import produce from 'immer'
 
 const components = {}
@@ -95,6 +100,14 @@ class TextNeure extends Neure {}
 
 // ---------------------------------------------
 
+class Brush {
+  constructor(data) {
+    Object.assign(this, data)
+  }
+}
+
+// ---------------------------------------------
+
 class Element {
   props = null // 外部传入的props
   context = null // 内部返回的结果
@@ -105,7 +118,12 @@ class Element {
   // 用于渲染的素材
   slot = null
   neure = null // 最顶级的Neure实例
-  brushes = null // 样式记录
+
+  // 用于样式
+  styles = null
+  brushes = null
+  dyeAt = null
+  brushesAt = null
 
   // schedule = new Set()
   queue = new Set()
@@ -507,10 +525,10 @@ class Element {
 
   // should must run after setup
   async mount(el) {
+    if (this.styles) {
+      await this.mountStyles(this.styles, el)
+    }
     await this.mountNeure(this.neure, el)
-
-    // TODO 创建css
-    // TODO 挂载style
 
     this.root = el
     this._isMounted = true
@@ -522,7 +540,9 @@ class Element {
     if (isInstanceOf(type, Component)) {
       await element.$ready()
       await element.setup(child)
-      await element.mount(root)
+      const node = document.createElement('sfc-view')
+      root.appendChild(node)
+      await element.mount(node.shadowRoot)
     }
     else if (isInstanceOf(neure, NeureList)) {
       if (child) {
@@ -573,6 +593,70 @@ class Element {
     }
   }
 
+  async mountStyles(styles, root) {
+    const list = []
+    const brushes = []
+    const create = (attrs) => {
+      let text = ''
+      each(attrs, (value, key) => {
+        if (isInstanceOf(value, Brush)) {
+          text += `${key}: var(--${value.id});`
+          brushes.push(value)
+        }
+        else {
+          text += `${key}: ${value};`
+        }
+      })
+      return text
+    }
+    const build = (item) => {
+      const { name, attrs } = item
+      let text = `${name} {`
+      text += create(attrs)
+      text += '}'
+      return text
+    }
+    each(styles, (item) => {
+      if (isArray(item)) {
+        const [type, query, ...rules] = item
+        if (isObject(query)) {
+          let text = `${type} {`
+          text += [query, ...rules].map((item) => item ? create(item) : '').filter(item => !!item).join('')
+          text += '}'
+          list.push(text)
+        }
+        else if (isString(query)) {
+          let text = `${type} ${query} {`
+          text += rules.map((item) => item ? build(item) : '').filter(item => !!item).join(' ')
+          text += '}'
+          list.push(text)
+        }
+      }
+      else if (!!item) {
+        const text = build(item)
+        list.push(text)
+      }
+    })
+    const content = list.join('\n')
+
+    if (brushes.length) {
+      const brushesContent = brushes.map((brush) => {
+        const { id, value } = brush
+        return `--${id}: ${value};`
+      }).join('\n')
+      const brushNode = document.createElement('style')
+      brushNode.textContent = `:host {\n${brushesContent}\n}`
+      root.appendChild(brushNode)
+      this.brushes = brushes
+      this.brushesAt = brushNode
+    }
+
+    const style = document.createElement('style')
+    style.textContent = content
+    root.appendChild(style)
+    this.dyeAt = style
+  }
+
   destroy() {
     this._isMounted = false
     this.props = null
@@ -590,8 +674,8 @@ class Element {
     const { render, dye } = context
 
     if (dye) {
-      const brushes = dye()
-      this.brushes = brushes
+      const styles = dye()
+      this.styles = styles
     }
 
     this.slot = slot
@@ -695,7 +779,28 @@ class Element {
     neure.child = subs[0]
   }
 
-  r(name, ...args) {}
+  r(name, ...args) {
+    const attrs = {}
+    args.forEach((item) => {
+      if (isObject(item)) {
+        each(item, (value, key) => {
+          if (isFunction(value)) {
+            const [v, deps] = this.collect(value)
+            attrs[key] = new Brush({
+              value: v,
+              deps,
+              getter: value,
+              id: createRandomString(12),
+            })
+          }
+          else {
+            attrs[key] = value
+          }
+        })
+      }
+    })
+    return { name, attrs }
+  }
 }
 
 export function initComponent(absUrl, meta = {}) {

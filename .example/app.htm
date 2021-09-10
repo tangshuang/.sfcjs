@@ -36,13 +36,15 @@
     color: rbg(var('{{ age * 5 }}'), var('{{ age * 10 }}'), var('{{ age * 3 }}'));
   }
 
-  @fns {
+  /* @fns {
     some(color, age) {
       outline: none;
       color: [[color]];
       font-size: [[age]]px;
     }
-  }
+  } */
+
+/*
 
   @if [[age % 5 === 0 && age > 10]] {
     .age {
@@ -62,7 +64,7 @@
     .age {
       font-size: 12px;
     }
-  }
+  } */
 
   @media max-width {
     .age {
@@ -79,11 +81,11 @@
     }
   }
 
-  @for color,index of [[colors]] {
+  /* @for color,index of [[colors]] {
     .age-[[index + 10]] {
       color: [[color]];
     }
-  }
+  } */
 
   @font-face {
     font-family: "Open Sans";

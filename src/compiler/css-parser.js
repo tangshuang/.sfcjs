@@ -751,7 +751,7 @@ export function parseCss(sourceCode, source, givenVars) {
     return name === str ? `'${str}'` : '`' + str + '`'
   }
   const createValue = (value, direct) => {
-    const interpolated = value.replace(/^var\(['"]\{\{(.*?)\}\}['"]\)$/, (_, $1) => {
+    const interpolated = value.replace(/var\(['"]\{\{(.*?)\}\}['"]\)/g, (_, $1) => {
       return '${' + consumeVars($1) + '}'
     }).replace(/\[\[(.*?)\]\]/g, (_, $1) => {
       return '${' + consumeVars($1) + '}'
@@ -766,7 +766,7 @@ export function parseCss(sourceCode, source, givenVars) {
 
   const createFnInvoker = (value) => {
     const interpolated = value
-      .replace(/^var\(['"]\{\{(.*?)\}\}['"]\)$/, '${$1}')
+      .replace(/var\(['"]\{\{(.*?)\}\}['"]\)/g, '${$1}')
       .replace(/\[\[(.*?)\]\]/g, '${$1}')
     const res = interpolated === value ? `'${value}'`
       : /^\$\{.*?\}$/.test(interpolated) ? interpolated.substring(2, interpolated.length - 1)
@@ -782,7 +782,7 @@ export function parseCss(sourceCode, source, givenVars) {
     })
 
     const interpolated = value
-      .replace(/^var\(['"]\{\{(.*?)\}\}['"]\)$/, (_, $1) => {
+      .replace(/var\(['"]\{\{(.*?)\}\}['"]\)/g, (_, $1) => {
         return '${' + consumeVars($1, vars) + '}'
       })
       .replace(/\[\[(.*?)\]\]/g, (_, $1) => {
@@ -1003,7 +1003,8 @@ export function parseCss(sourceCode, source, givenVars) {
     }
   })
 
-  code += fns.join(';') + ';'
+  code += fns.join(';')
+  code += fns.length ? ';' : ''
 
   code += `return [${css.join(',')}];`
 

@@ -59,7 +59,7 @@ class SFC_Element extends HTMLElement {
     const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
     const code = await getComponentCode(url)
-    console.log(code)
+    // console.log(code)
     const script = createScriptByBlob(code)
     script.setAttribute('sfc-src', url)
     this.absUrl = url
@@ -87,4 +87,12 @@ class SFC_Element extends HTMLElement {
   }
 }
 
+class SFC_View extends HTMLElement {
+  constructor() {
+    super()
+    this.attachShadow({ mode: 'open' })
+  }
+}
+
 customElements.define('sfc-app', SFC_Element)
+customElements.define('sfc-view', SFC_View)

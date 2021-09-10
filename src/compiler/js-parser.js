@@ -390,7 +390,7 @@ export function parseJs(sourceCode) {
       const operator = tokens[i]
       const varname = token.trim()
 
-      const exp = `${varname} = SFC.update(${varname}, ${varname} => (${varname} ${operator},${varname}));`
+      const exp = `${varname} = SFC.update(${varname}, ${varname} => (${varname} ${operator},${varname}))` // 由于直接匹配，不需要在末尾加;
       code += exp
     }
     // consume
