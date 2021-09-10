@@ -33,7 +33,7 @@
   }
 
   .age {
-    color: ('{{ colors[age % 3] }}');
+    color: rbg(var('{{ age * 5 }}'), var('{{ age * 10 }}'), var('{{ age * 3 }}'));
   }
 
   @fns {

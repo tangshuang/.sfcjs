@@ -21,7 +21,7 @@ export function parseHtml(sourceCode, components, givenVars) {
     return res
   }
 
-  let code = 'function() {return '
+  let code = '() => {return '
 
   // DROP 通过clearHtml解决了
   // traverseHtmlAst(htmlAst, {
