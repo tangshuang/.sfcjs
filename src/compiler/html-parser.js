@@ -81,7 +81,7 @@ export function parseHtml(sourceCode, components, givenVars) {
           args.push(null)
         }
         else if (k === 'repeat') {
-          const matched = value.match(/^(.+?)(,(.+?))?of (.+?)$/);
+          const matched = value.match(/^(.+?)(,(.+?))?in (.+?)$/);
           if (!matched) {
             throw new Error(`repeat 语法不正确`)
           }

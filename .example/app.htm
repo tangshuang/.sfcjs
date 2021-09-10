@@ -102,7 +102,7 @@
     (style)="age > 13 ? 'font-weight: bold;' : null"
     (if)="age > 10"
   >age: {{age}}</div>
-  <div (repeat)="color,index of colors" (if)="!!color" (key)="color">
+  <div (repeat)="color,index in colors" (if)="!!color" (key)="color">
     <i>{{index}}: {{color}}</i>
   </div>
   <button @click="grow(event)">grow</button>
