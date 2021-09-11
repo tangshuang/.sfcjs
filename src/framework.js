@@ -1097,8 +1097,10 @@ function changeInput(neure) {
 
   if (type === 'select') {
     const options = [...node.querySelectorAll(':scope > option')]
+    const bindValue = bind[0]
+    node.value = bindValue
     options.forEach((option) => {
-      if (option.getAttribute('value') === bind[0]) {
+      if (option.getAttribute('value') === bindValue) {
         option.setAttribute('selected', 'selected')
       }
       else {

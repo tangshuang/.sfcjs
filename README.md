@@ -117,3 +117,4 @@ Template grammar:
 - (repeat): `<div repeat="item,index in items" (key)="item.id">{{item.text}}</div>` `items` is a variable
 - (key): always used with repeat
 - (await): `<div await="promise.then(data).catch(errro).finall(result)"><span (if)="result">{{data.text}}</span><span (if)="!result">{{errro.message}}</span></div>` `promise` is a variable of Promise
+- (bind): `<input (bind)="word" />` only support for `<input>` `<textarea>` `<select>`, two-way-binding for form components, you do not need to pass default value into, i.e. `<textarea (bind)="description"></textarea>`, `description` has value, but you do not need to pass it into `textarea` like -`<textarea (bind)="description">{{description}}</textarea>`-.
