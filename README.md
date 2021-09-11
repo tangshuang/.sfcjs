@@ -17,7 +17,7 @@ Amazing library to write single file component based UI in web conveniently.
 Entry `index.html` (look into https://unpkg.com/sfcjs/.example/index.html)
 
 ```html
-<sfc-app src="./my-component.htm"></sfc-app>
+<sfc-view src="./my-component.htm" auto="1"></sfc-view>
 <script src="https://unpkg.com/sfcjs"></script>
 ```
 
