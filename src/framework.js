@@ -66,6 +66,9 @@ class Neure {
   attrs = null
   props = null
   events = null
+  bind = null
+  className = null
+  style = null
   // 记录内函数的参数
   args = null
   // DOM 节点
@@ -354,7 +357,7 @@ class Element {
       // 根据变化情况更新DOM
 
       const walk = (neure) => {
-        const { type, meta, children, deps, repeat, node, parentNode, args } = neure
+        const { type, meta, children, deps, repeat, node, parentNode, args, bind } = neure
 
         let notNeedWalkToChild = false
 
@@ -461,6 +464,7 @@ class Element {
                 visible: visibleGetter,
                 key: keyGetter,
                 attrs: attrsGetter,
+                bind: bindGetter,
               } = meta
 
               const key = keyGetter ? keyGetter(args) : null
@@ -468,6 +472,7 @@ class Element {
               const attrs = attrsGetter ? attrsGetter(args) : {}
               const className = classGetter ? classGetter(args) : ''
               const style = styleGetter ? styleGetter(args) : ''
+              const bind = bindGetter ? bindGetter() : null
 
               // 从不显示变为显示
               showOut = visible && !neure.visible
@@ -490,6 +495,11 @@ class Element {
               each(attrs, (value, key) => {
                 node.setAttribute(key, value)
               })
+
+              if (bind) {
+                neure.bind = bind
+                changeInput(neure)
+              }
 
               if (className) {
                 const classNames = className.split(' ')
@@ -562,17 +572,15 @@ class Element {
     this._isMounted = true
   }
 
-  async mountNeure(neure, root, ...args) {
-    const { type, attrs, events, element, child, sibling, text, visible, className, style } = neure
-    const useInsertBefore = args.length
-    const [afterNode, asyncMount] = args
-    const beforeNode = afterNode ? afterNode.nextSibling : root.firstChild
+  async mountNeure(neure, root, asyncMount) {
+    const { type, attrs, events, element, child, sibling, text, visible, className, style, bind } = neure
 
     if (isInstanceOf(type, Component)) {
       await element.$ready()
       await element.setup(child)
       const node = document.createElement('sfc-view')
-      if (useInsertBefore) {
+      if (asyncMount) {
+        const beforeNode = findSibling(neure)
         root.insertBefore(node, beforeNode)
       }
       else {
@@ -587,7 +595,8 @@ class Element {
     }
     else if (isInstanceOf(neure, TextNeure)) {
       const node = document.createTextNode(text)
-      if (useInsertBefore) {
+      if (asyncMount) {
+        const beforeNode = findSibling(neure)
         root.insertBefore(node, beforeNode)
       }
       else {
@@ -600,16 +609,13 @@ class Element {
       const { slot } = this
       // TODO
     }
+    // 等await完成后再mount
+    else if (isInstanceOf(neure, AsyncNeure) && !asyncMount) {
+      neure.promise.finally(() => {
+        this.mountNeure(neure, root, true)
+      })
+    }
     else {
-      // 等await完成后再mount
-      if (isInstanceOf(neure, AsyncNeure) && !asyncMount) {
-        const backerNode = root.lastChild
-        neure.promise.finally(() => {
-          this.mountNeure(neure, root, backerNode, true)
-        })
-        return
-      }
-
       const node = document.createElement(type)
       each(attrs, (value, key) => {
         node.setAttribute(key, value)
@@ -627,8 +633,16 @@ class Element {
         node.style.cssText = (node.style.cssText || '') + style
       }
 
+      if (bind) {
+        const bindUpdate = (e) => {
+          bind[1](e.target.value)
+        }
+        node.addEventListener('input', bindUpdate)
+      }
+
       if (visible) {
-        if (useInsertBefore) {
+        if (asyncMount) {
+          const beforeNode = findSibling(neure)
           root.insertBefore(node, beforeNode)
         }
         else {
@@ -640,11 +654,18 @@ class Element {
       if (child) {
         await this.mountNeure(child, node)
       }
+
+      if (bind) {
+        changeInput(neure)
+      }
     }
 
     neure.parentNode = root
-    if (sibling) {
-      await this.mountNeure(sibling, root)
+
+    if (!asyncMount) {
+      if (sibling) {
+        await this.mountNeure(sibling, root)
+      }
     }
   }
 
@@ -839,7 +860,12 @@ class Element {
         const copy = createNeure(type, others, childrenGetter, neure.args)
         neure.set({
           ...copy,
+          args: neure.args,
+          data: neure.data,
+          error: neure.error,
           promise: neure.promise,
+          result: result,
+          sibling: neure.sibling,
         })
 
         this.genChildren(neure)
@@ -981,6 +1007,7 @@ function createNeure(type, meta, children, args) {
     attrs: attrsGetter,
     props: propsGetter,
     events: eventsGetter,
+    bind: bindGetter,
   } = meta
 
   const key = keyGetter ? keyGetter(args) : null
@@ -990,6 +1017,7 @@ function createNeure(type, meta, children, args) {
   const events = eventsGetter ? eventsGetter(args) : {}
   const className = classGetter ? classGetter(args) : ''
   const style = styleGetter ? styleGetter(args) : ''
+  const bind = bindGetter ? bindGetter() : null
 
   const neure = new Neure({
     type,
@@ -1005,6 +1033,7 @@ function createNeure(type, meta, children, args) {
     events,
     className,
     style,
+    bind,
   })
 
   if (isInstanceOf(type, Component)) {
@@ -1061,4 +1090,30 @@ function findSibling(neure) {
   }
 
   return findSibling(sibling)
+}
+
+function changeInput(neure) {
+  const { bind, node, type } = neure
+
+  if (type === 'select') {
+    const options = [...node.querySelectorAll(':scope > option')]
+    options.forEach((option) => {
+      if (option.getAttribute('value') === bind[0]) {
+        option.setAttribute('selected', 'selected')
+      }
+      else {
+        option.removeAttribute('selected')
+      }
+    })
+  }
+  else if (type === 'textarea') {
+    const bindValue = bind[0]
+    node.value = bindValue
+    node.innerHTML = bindValue
+  }
+  else if (type === 'input') {
+    const bindValue = bind[0]
+    node.value = bindValue
+    node.setAttribute('value', bindValue)
+  }
 }

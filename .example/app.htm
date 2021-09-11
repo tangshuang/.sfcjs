@@ -26,6 +26,8 @@
     '#a97',
   ]
 
+  let selectedColor = colors[1]
+
   const promise = new Promise((resolve) => {
     setTimeout(resolve, 3000)
   })
@@ -115,4 +117,14 @@
     :some-attr="age * 5 > 10 ? 'ok' : null"
   ></some-component>
   <div (await)="promise.finally(result)" (if)="result">Show async after 3s!</div>
+
+  <input (bind)="name" />
+  <textarea (bind)="name"></textarea>
+
+  <div>
+    <span>Selected color: {{selectedColor}}</span>
+    <select (bind)="selectedColor">
+      <option (repeat)="color in colors" (key)="color" value="{{color}}">{{color}}</option>
+    </select>
+  </div>
 </div>

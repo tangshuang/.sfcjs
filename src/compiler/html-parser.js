@@ -52,7 +52,7 @@ export function parseHtml(sourceCode, components, givenVars) {
     return '`' + res + '`'
   }
 
-  const create = (obj) => {
+  const create = (obj, type) => {
     const attrs = []
     const props = []
     const events = []
@@ -111,6 +111,14 @@ export function parseHtml(sourceCode, components, givenVars) {
           directives.push(['await', `{promise:${promise}${data ? `,data:'${data}'` : ''}${error ? `,error:'${error}'` : ''}${result ? `,result:'${result}'` : ''}}`, true])
           args.push(...[data, error, result].filter(item => !!item))
         }
+        else if (k === 'bind') {
+          const allows = ['input', 'textarea', 'select']
+          if (!allows.includes(type)) {
+            throw new Error(`bind 不能在 ${type} 上使用，只限于 ${allows.join(',')}`)
+          }
+
+          directives.push(['bind', `[SFC.consume(${value}), v => SFC.update(${value}, () => v)]`, true, true])
+        }
       }
       else {
         const v = createValue()
@@ -139,8 +147,8 @@ export function parseHtml(sourceCode, components, givenVars) {
       res += '})'
       return res
     }).concat(directives.map((item) => {
-      const [name, value, nonArgs] = item
-      const exp = consumeVars(value, finalArgsMap)
+      const [name, value, nonArgs, nonVar] = item
+      const exp = nonVar ? value : consumeVars(value, finalArgsMap)
       return `${name}:(${nonArgs ? '' : finalArgsStr}) => ${value[0] === '{' ? `(${exp})` : exp}`
     })).filter(item => !!item).join(',')
 
@@ -155,7 +163,7 @@ export function parseHtml(sourceCode, components, givenVars) {
     let subs = []
 
     if (props) {
-      [data, args] = create(props)
+      [data, args] = create(props, type)
     }
 
     const subArgs = args.filter(item => !!item).join(',')
