@@ -83,12 +83,13 @@ export function parseHtml(sourceCode, components, givenVars) {
         else if (k === 'repeat') {
           const matched = value.match(/^(.+?)(,(.+?))?in (.+?)$/);
           if (!matched) {
-            throw new Error(`repeat 语法不正确`)
+            throw new Error(`repeat 语法不正确 repeat="item,index in items"`)
           }
 
-          const [, item, , index = 'index', items] = matched
-          directives.push(['repeat', `{items:${items.trim()},item:'${item.trim()}',index:'${index.trim()}'}`, true])
-          args.push(item, index)
+          const [, _item, , _index, _items] = matched
+          const [item, index, items] = [_item.trim(), _index ? _index.trim() : null, _items.trim()]
+          directives.push(['repeat', `{items:${items},item:'${item}'${index ? `,index:'${index}'` : ''}}`, true])
+          args.push(...[item, index].filter(item => !!item))
         }
         else if (k === 'key') {
           directives.push(['key', value])
@@ -98,6 +99,17 @@ export function parseHtml(sourceCode, components, givenVars) {
         }
         else if (k === 'style') {
           directives.push(['style', value])
+        }
+        else if (k === 'await') {
+          const matched = value.match(/^(\w+)(\.then\((\w+)\))?(\.catch\((\w+)\))?(\.finally\((\w+)\))?$/);
+          if (!matched) {
+            throw new Error(`await 语法不正确 await="promise.then(data).catch(error).finally(result)"`)
+          }
+
+          const [, _promise, , _data, , _error, , _result] = matched
+          const [promise, data, error, result] = [_promise, _data, _error, _result].map(item => item ? item.trim() : null)
+          directives.push(['await', `{promise:${promise}${data ? `,data:'${data}'` : ''}${error ? `,error:'${error}'` : ''}${result ? `,result:'${result}'` : ''}}`, true])
+          args.push(...[data, error, result].filter(item => !!item))
         }
       }
       else {

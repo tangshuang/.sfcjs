@@ -85,6 +85,11 @@ class Neure {
 
   text = null // TextNode内部的文本
 
+  promise = null // 含有await指令
+  data = null
+  error = null
+  result = null
+
   constructor(data = {}) {
     this.set(data)
   }
@@ -97,6 +102,10 @@ class Neure {
 class NeureList extends Neure {}
 
 class TextNeure extends Neure {}
+
+class AsyncNeure extends Neure {
+  visible = false // 一开始的时候是隐藏起来的
+}
 
 // ---------------------------------------------
 
@@ -349,7 +358,7 @@ class Element {
 
         let notNeedWalkToChild = false
 
-        if (isInstanceOf(neure, NodeList)) {
+        if (isInstanceOf(neure, NeureList)) {
           if (deps.length && isOneInArray(changed, deps)) {
             const neureList = neure
             const {
@@ -369,17 +378,20 @@ class Element {
 
             if (!isShallowEqual(items, prevItems)) {
               each(items, (item, index) => {
-                const prevIndex = prevItems.indexOf(item)
-                if (prevIndex > -1) {
-                  neures.push(prevList[index])
-                  prevList.splice(index, 1) // 从原来的列表中删除
-                  return
-                }
-
                 const args = {
                   [itemKey]: item,
                   [indexKey]: index,
                 }
+                const prevIndex = prevItems.indexOf(item)
+
+                if (prevIndex > -1) {
+                  const prevNeure = prevList[index]
+                  Object.assign(prevNeure.args, args) // 更新args
+                  neures.push(prevNeure)
+                  prevList.splice(index, 1) // 从原来的列表中删除
+                  return
+                }
+
                 const neure = this.initNeure(type, others, children, args)
                 if (neures.length) {
                   neures[neures.length - 1].sibling = neure
@@ -550,14 +562,22 @@ class Element {
     this._isMounted = true
   }
 
-  async mountNeure(neure, root) {
+  async mountNeure(neure, root, ...args) {
     const { type, attrs, events, element, child, sibling, text, visible, className, style } = neure
+    const useInsertBefore = args.length
+    const [afterNode, asyncMount] = args
+    const beforeNode = afterNode ? afterNode.nextSibling : root.firstChild
 
     if (isInstanceOf(type, Component)) {
       await element.$ready()
       await element.setup(child)
       const node = document.createElement('sfc-view')
-      root.appendChild(node)
+      if (useInsertBefore) {
+        root.insertBefore(node, beforeNode)
+      }
+      else {
+        root.appendChild(node)
+      }
       await element.mount(node.shadowRoot)
     }
     else if (isInstanceOf(neure, NeureList)) {
@@ -567,7 +587,12 @@ class Element {
     }
     else if (isInstanceOf(neure, TextNeure)) {
       const node = document.createTextNode(text)
-      root.appendChild(node)
+      if (useInsertBefore) {
+        root.insertBefore(node, beforeNode)
+      }
+      else {
+        root.appendChild(node)
+      }
       neure.node = node
       neure.parentNode = root
     }
@@ -576,6 +601,15 @@ class Element {
       // TODO
     }
     else {
+      // 等await完成后再mount
+      if (isInstanceOf(neure, AsyncNeure) && !asyncMount) {
+        const backerNode = root.lastChild
+        neure.promise.finally(() => {
+          this.mountNeure(neure, root, backerNode, true)
+        })
+        return
+      }
+
       const node = document.createElement(type)
       each(attrs, (value, key) => {
         node.setAttribute(key, value)
@@ -594,7 +628,12 @@ class Element {
       }
 
       if (visible) {
-        root.appendChild(node)
+        if (useInsertBefore) {
+          root.insertBefore(node, beforeNode)
+        }
+        else {
+          root.appendChild(node)
+        }
       }
 
       neure.node = node
@@ -730,7 +769,7 @@ class Element {
   }
 
   initNeure(type, meta = {}, childrenGetter, args) {
-    const { repeat: repeatGetter } = meta
+    const { repeat: repeatGetter, await: awaitGetter } = meta
 
     if (repeatGetter) {
       const neureList = new NeureList({
@@ -764,6 +803,48 @@ class Element {
       neureList.child = neures[0] || null
       neureList.list = neures
       return neureList
+    }
+
+    if (awaitGetter) {
+      const { await: _await, ...others } = meta
+      const { promise, data, error, result } = awaitGetter() // 无法进行响应式，只能一次使用
+      const neure = new AsyncNeure({
+        type,
+        meta: others,
+        children: childrenGetter,
+        args: args || {},
+      })
+
+      let msg = null
+      // 必须让promise为finally后的promise，否则在其他地方用时接不住
+      neure.promise = promise.then((res) => {
+        msg = 1
+        if (data) {
+          neure.data = data
+          neure.args[data] = res
+        }
+      }).catch((err) => {
+        msg = 0
+        if (error) {
+          neure.error = error
+          neure.args[error] = err
+        }
+      }).finally(() => {
+        if (result) {
+          neure.result = result
+          neure.args[result] = msg
+        }
+
+        // 真正实例化
+        const copy = createNeure(type, others, childrenGetter, neure.args)
+        neure.set({
+          ...copy,
+          promise: neure.promise,
+        })
+
+        this.genChildren(neure)
+      })
+      return neure
     }
 
     const neure = createNeure(type, meta, childrenGetter, args)

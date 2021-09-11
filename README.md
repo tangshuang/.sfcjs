@@ -105,6 +105,15 @@ Component file `./my-component.html`
 Template grammar:
 
 - use js express in `{{ ... }}` to get output string
-- use js express in directives which use `(..)` as attribute, `(if)` `(class)` `(style)` `(repeat)` `(key)` supported now
+- use js express in directives which use `(..)` as attribute, `(if)` `(class)` `(style)` `(repeat)` `(key)` `(await)` supported now
 - use js express `@..` as event binding attribute, for example `@click="xx(event)"`
 - use js express `:..` as component props binding attribute, only works on components, pass real value (object, boolean, number) into components
+
+**directives**
+
+- (if): `<div (if)="someVar === 1">`
+- (class): `<div class="default-class" (class)="age > 10 ? 'dynamic-class' : ''">`
+- (style): `<div style="color: red" (style)="age > 10 ? 'font-size: 12px' : ''">`
+- (repeat): `<div repeat="item,index in items" (key)="item.id">{{item.text}}</div>` `items` is a variable
+- (key): always used with repeat
+- (await): `<div await="promise.then(data).catch(errro).finall(result)"><span (if)="result">{{data.text}}</span><span (if)="!result">{{errro.message}}</span></div>` `promise` is a variable of Promise

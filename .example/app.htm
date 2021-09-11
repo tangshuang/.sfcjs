@@ -25,6 +25,10 @@
     '#ccd',
     '#a97',
   ]
+
+  const promise = new Promise((resolve) => {
+    setTimeout(resolve, 3000)
+  })
 </script>
 
 <style>
@@ -110,4 +114,5 @@
     :title="'xxx'"
     :some-attr="age * 5 > 10 ? 'ok' : null"
   ></some-component>
+  <div (await)="promise.finally(result)" (if)="result">Show async after 3s!</div>
 </div>
