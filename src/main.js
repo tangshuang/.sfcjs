@@ -1,4 +1,4 @@
-import { resolveUrl, randomString, createBlobUrl, createScriptByBlob, insertScript } from './utils'
+import { resolveUrl, randomString, createBlobUrl, createScriptByBlob, insertScript, each } from './utils'
 import { initComponent } from './framework'
 
 const { currentScript } = document
@@ -47,14 +47,36 @@ export function getComponentCode(src) {
   })
 }
 
-class SFC_Element extends HTMLElement {
+class SFC_View extends HTMLElement {
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
     this.rootElement = null
+
+    this._ready = new Promise((r) => {
+      this.__ready = r
+    })
+  }
+
+  $ready(resolved) {
+    if (resolved) {
+      this.__ready()
+    }
+    return this._ready
   }
 
   async connectedCallback() {
+    const src = this.getAttribute('src')
+    const auto = this.getAttribute('auto')
+    if (src) {
+      await this.setup()
+    }
+    if (src && auto) {
+      await this.mount()
+    }
+  }
+
+  async setup() {
     const src = this.getAttribute('src')
     const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
@@ -64,20 +86,17 @@ class SFC_Element extends HTMLElement {
     script.setAttribute('sfc-src', url)
     this.absUrl = url
     await insertScript(script)
-
-    if (this.getAttribute('auto')) {
-      this.mount()
-    }
+    this.$ready(true)
   }
 
   async mount(meta) {
+    await this.$ready()
     const { absUrl } = this
     const element = initComponent(absUrl, meta)
     this.rootElement = element
     await element.$ready()
     await element.setup()
     await element.mount(this.shadowRoot)
-    console.log(element)
   }
 
   disconnectedCallback() {
@@ -87,12 +106,4 @@ class SFC_Element extends HTMLElement {
   }
 }
 
-class SFC_View extends HTMLElement {
-  constructor() {
-    super()
-    this.attachShadow({ mode: 'open' })
-  }
-}
-
-customElements.define('sfc-app', SFC_Element)
 customElements.define('sfc-view', SFC_View)
