@@ -116,7 +116,12 @@
     :title="'xxx'"
     :some-attr="age * 5 > 10 ? 'ok' : null"
   ></some-component>
-  <div (await)="promise.finally(result)" (if)="result">Show async after 3s!</div>
+
+  <div (await)="promise.status(status)">
+    <span (if)="status === 'pending'">Waiting ...</span>
+    <span (if)="status === 'resolved'">Show async success after 3s!</span>
+    <span (if)="status === 'rejected'">Show async failure after 3s!</span>
+  </div>
 
   <input (bind)="name" />
   <textarea (bind)="name"></textarea>

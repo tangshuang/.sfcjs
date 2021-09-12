@@ -83,31 +83,25 @@ class Neure {
   // 不同的类型依赖生效的域不同，普通节点对meta生效，文本节点对children生效，list节点对list生效
   deps = []
 
-  list = null // fragment内部的内容
-  repeat = null // repeat数据
-
-  text = null // TextNode内部的文本
-
-  promise = null // 含有await指令
-  data = null
-  error = null
-  result = null
-
-  constructor(data = {}) {
-    this.set(data)
-  }
-
   set(data) {
     Object.assign(this, data)
   }
 }
 
-class NeureList extends Neure {}
+class NeureList extends Neure {
+  list = null // fragment内部的内容
+  repeat = null // repeat数据
+}
 
-class TextNeure extends Neure {}
+class TextNeure extends Neure {
+  text = null // TextNode内部的文本
+}
 
 class AsyncNeure extends Neure {
-  visible = false // 一开始的时候是隐藏起来的
+  promise = null // 含有await指令
+  data = ''
+  error = ''
+  status = ''
 }
 
 // ---------------------------------------------
@@ -265,9 +259,6 @@ class Element {
     return reactor
   }
 
-  // scheduleUpdate() {
-  // }
-
   queueUpdate() {
     if (this._queueUpdating) {
       return
@@ -338,7 +329,6 @@ class Element {
         })
       })
 
-
       // 重新构建样式
       if (this.brushes && this.brushesAt) {
         const brushesContent = this.brushes.map((brush) => {
@@ -355,206 +345,8 @@ class Element {
       }
 
       // 根据变化情况更新DOM
-
-      const walk = (neure) => {
-        const { type, meta, children, deps, repeat, node, parentNode, args, bind } = neure
-
-        let notNeedWalkToChild = false
-
-        if (isInstanceOf(neure, NeureList)) {
-          if (deps.length && isOneInArray(changed, deps)) {
-            const neureList = neure
-            const {
-              repeat: prevItems,
-              list: prevList,
-            } = neureList
-            const {
-              repeat: repeatGetter,
-            } = meta
-            const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
-
-            neureList.deps = repeatDeps
-            neureList.repeat = items
-
-            const neures = []
-            const { repeat, ...others } = meta
-
-            if (!isShallowEqual(items, prevItems)) {
-              each(items, (item, index) => {
-                const args = {
-                  [itemKey]: item,
-                  [indexKey]: index,
-                }
-                const prevIndex = prevItems.indexOf(item)
-
-                if (prevIndex > -1) {
-                  const prevNeure = prevList[index]
-                  Object.assign(prevNeure.args, args) // 更新args
-                  neures.push(prevNeure)
-                  prevList.splice(index, 1) // 从原来的列表中删除
-                  return
-                }
-
-                const neure = this.initNeure(type, others, children, args)
-                if (neures.length) {
-                  neures[neures.length - 1].sibling = neure
-                }
-                neures.push(neure)
-              })
-              each(neures, (neure) => {
-                neure.parent = neureList
-              })
-
-              neureList.child = neures[0] || null
-              neureList.list = neures
-
-              const sibling = decideby(() => {
-                const firstNode = prevList.find(item => item.visible && item.node)
-                if (firstNode) {
-                  return firstNode
-                }
-                const sibling = findSibling(neureList)
-                return sibling
-              })
-              each(neures, (neure) => {
-                if (neure.node) {
-                  parentNode.insertBefore(neure.node, sibling)
-                }
-                else {
-                  this.mountNeure(neure, parentNode)
-                }
-              })
-
-              // 移除已经拥有用的DOM节点
-              const removeChildren = (list) => {
-                each(list, (item) => {
-                  if (item.node) {
-                    parentNode.remove(item.node)
-                  }
-                  else if (isInstanceOf(item, NeureList) && item.list) {
-                    removeChildren(item.list)
-                  }
-                })
-              }
-              removeChildren(prevList)
-            }
-          }
-        }
-        else if (isInstanceOf(neure, TextNeure)) {
-          if (deps?.length && isOneInArray(changed, deps)) {
-            this.collect(() => {
-              const text = neure.children()
-              neure.node.textContent = text
-              neure.text = text
-            }, (deps) => {
-              neure.deps = deps
-            })
-          }
-        }
-        else if (type === 'slot') {}
-        else if (isInstanceOf(type, Component)) {}
-        else {
-          let showOut = false
-
-          if (deps?.length && isOneInArray(changed, deps)) {
-            this.collect(() => {
-              const {
-                class: classGetter,
-                style: styleGetter,
-                visible: visibleGetter,
-                key: keyGetter,
-                attrs: attrsGetter,
-                bind: bindGetter,
-              } = meta
-
-              const key = keyGetter ? keyGetter(args) : null
-              const visible = visibleGetter ? visibleGetter(args) : true
-              const attrs = attrsGetter ? attrsGetter(args) : {}
-              const className = classGetter ? classGetter(args) : ''
-              const style = styleGetter ? styleGetter(args) : ''
-              const bind = bindGetter ? bindGetter() : null
-
-              // 从不显示变为显示
-              showOut = visible && !neure.visible
-
-              // 重置样式相关
-              node.classList.forEach((className) => {
-                node.classList.remove(className)
-              })
-              node.style.cssText = ''
-
-              // 移除原有的不再需要的属性
-              if (neure.attrs) {
-                each(neure.attrs, (_, key) => {
-                  if (!(key in attrs)) {
-                    node.removeAttribute(key)
-                  }
-                })
-              }
-
-              each(attrs, (value, key) => {
-                node.setAttribute(key, value)
-              })
-
-              if (bind) {
-                neure.bind = bind
-                changeInput(neure)
-              }
-
-              if (className) {
-                const classNames = className.split(' ')
-                classNames.forEach((item) => {
-                  node.classList.add(item)
-                })
-              }
-
-              if (style) {
-                node.style.cssText = (node.style.cssText || '') + style
-              }
-
-              if (neure.visible !== visible) {
-                if (visible) {
-                  const sibling = findSibling(neure)
-                  parentNode.insertBefore(node, sibling)
-                }
-                else {
-                  parentNode.removeChild(node)
-                }
-              }
-
-              neure.set({
-                key,
-                visible,
-                attrs,
-                className,
-                style,
-              })
-            }, (deps) => {
-              neure.deps = deps
-            })
-          }
-
-          // 从最开始的不显示，变为显示出来，需要新建child
-          if (!neure.child && showOut) {
-            this.genChildren(neure)
-            if (neure.child) {
-              this.mountNeure(neure.child, neure.node)
-            }
-            notNeedWalkToChild = true
-          }
-        }
-
-        if (!notNeedWalkToChild && neure.child) {
-          walk(neure.child)
-        }
-
-        if (neure.sibling) {
-          walk(neure.sibling)
-        }
-      }
-
       // console.log(changed)
-      walk(this.neure)
+      this.updateNeure(this.neure, changed)
 
       this.queue.clear()
       this._queueUpdating = false
@@ -572,20 +364,14 @@ class Element {
     this._isMounted = true
   }
 
-  async mountNeure(neure, root, asyncMount) {
+  async mountNeure(neure, root) {
     const { type, attrs, events, element, child, sibling, text, visible, className, style, bind } = neure
 
     if (isInstanceOf(type, Component)) {
       await element.$ready()
       await element.setup(child)
       const node = document.createElement('sfc-view')
-      if (asyncMount) {
-        const beforeNode = findSibling(neure)
-        root.insertBefore(node, beforeNode)
-      }
-      else {
-        root.appendChild(node)
-      }
+      root.appendChild(node)
       await element.mount(node.shadowRoot)
     }
     else if (isInstanceOf(neure, NeureList)) {
@@ -595,25 +381,13 @@ class Element {
     }
     else if (isInstanceOf(neure, TextNeure)) {
       const node = document.createTextNode(text)
-      if (asyncMount) {
-        const beforeNode = findSibling(neure)
-        root.insertBefore(node, beforeNode)
-      }
-      else {
-        root.appendChild(node)
-      }
+      root.appendChild(node)
       neure.node = node
       neure.parentNode = root
     }
     else if (type === 'slot') {
       const { slot } = this
       // TODO
-    }
-    // 等await完成后再mount
-    else if (isInstanceOf(neure, AsyncNeure) && !asyncMount) {
-      neure.promise.finally(() => {
-        this.mountNeure(neure, root, true)
-      })
     }
     else {
       const node = document.createElement(type)
@@ -635,19 +409,15 @@ class Element {
 
       if (bind) {
         const bindUpdate = (e) => {
-          bind[1](e.target.value)
+          const nextValue = e.target.value
+          bind[0] = nextValue
+          bind[1](nextValue)
         }
         node.addEventListener('input', bindUpdate)
       }
 
       if (visible) {
-        if (asyncMount) {
-          const beforeNode = findSibling(neure)
-          root.insertBefore(node, beforeNode)
-        }
-        else {
-          root.appendChild(node)
-        }
+        root.appendChild(node)
       }
 
       neure.node = node
@@ -662,11 +432,238 @@ class Element {
 
     neure.parentNode = root
 
-    if (!asyncMount) {
-      if (sibling) {
-        await this.mountNeure(sibling, root)
+    if (sibling) {
+      await this.mountNeure(sibling, root)
+    }
+
+    // 等到全部初始状态挂载完毕之后，才能进入到更新操作，有一个mounted标记控制
+    if (isInstanceOf(neure, AsyncNeure)) {
+      neure.promise.then((res) => {
+        if (neure.status) {
+          const [key, reactor] = neure.status
+          neure.args[key] = 'resolved'
+          this.update(reactor, () => 'resolved')
+        }
+        if (neure.data) {
+          const [key, reactor] = neure.data
+          neure.args[key] = res
+          this.update(reactor, () => res)
+        }
+      }).catch((err) => {
+        if (neure.status) {
+          const [key, reactor] = neure.status
+          neure.args[key] = 'rejected'
+          this.update(reactor, () => 'rejected')
+        }
+        if (neure.error) {
+          const [key, reactor] = neure.error
+          neure.args[key] = err
+          this.update(reactor, () => err)
+        }
+      })
+    }
+  }
+
+  // 根据变化情况更新DOM
+  updateNeure(neure, changed) {
+    const walk = (neure) => {
+      const { type, meta, children, deps, repeat, node, parentNode, args, bind } = neure
+
+      let notNeedWalkToChild = false
+
+      if (isInstanceOf(neure, NeureList)) {
+        if (!changed || (deps.length && isOneInArray(changed, deps))) {
+          const neureList = neure
+          const {
+            repeat: prevItems,
+            list: prevList,
+          } = neureList
+          const {
+            repeat: repeatGetter,
+          } = meta
+          const [{ items, item: itemKey, index: indexKey }, repeatDeps] = this.collect(() => repeatGetter())
+
+          neureList.deps = repeatDeps
+          neureList.repeat = items
+
+          const neures = []
+          const { repeat, ...others } = meta
+
+          if (!isShallowEqual(items, prevItems)) {
+            each(items, (item, index) => {
+              const args = {
+                [itemKey]: item,
+                [indexKey]: index,
+              }
+              const prevIndex = prevItems.indexOf(item)
+
+              if (prevIndex > -1) {
+                const prevNeure = prevList[index]
+                Object.assign(prevNeure.args, args) // 更新args
+                neures.push(prevNeure)
+                prevList.splice(index, 1) // 从原来的列表中删除
+                return
+              }
+
+              const neure = this.initNeure(type, others, children, args)
+              if (neures.length) {
+                neures[neures.length - 1].sibling = neure
+              }
+              neures.push(neure)
+            })
+            each(neures, (neure) => {
+              neure.parent = neureList
+            })
+
+            neureList.child = neures[0] || null
+            neureList.list = neures
+
+            const sibling = decideby(() => {
+              const firstNode = prevList.find(item => item.visible && item.node)
+              if (firstNode) {
+                return firstNode
+              }
+              const sibling = findSibling(neureList)
+              return sibling
+            })
+            each(neures, (neure) => {
+              if (neure.node) {
+                parentNode.insertBefore(neure.node, sibling)
+              }
+              else {
+                this.mountNeure(neure, parentNode)
+              }
+            })
+
+            // 移除已经拥有用的DOM节点
+            const removeChildren = (list) => {
+              each(list, (item) => {
+                if (item.node) {
+                  parentNode.remove(item.node)
+                }
+                else if (isInstanceOf(item, NeureList) && item.list) {
+                  removeChildren(item.list)
+                }
+              })
+            }
+            removeChildren(prevList)
+          }
+        }
+      }
+      else if (isInstanceOf(neure, TextNeure)) {
+        if (!changed || (deps?.length && isOneInArray(changed, deps))) {
+          this.collect(() => {
+            const text = neure.children()
+            neure.node.textContent = text
+            neure.text = text
+          }, (deps) => {
+            neure.deps = deps
+          })
+        }
+      }
+      else if (type === 'slot') {}
+      else if (isInstanceOf(type, Component)) {}
+      else {
+        let showOut = false
+
+        if (!changed || (deps?.length && isOneInArray(changed, deps))) {
+          this.collect(() => {
+            const {
+              class: classGetter,
+              style: styleGetter,
+              visible: visibleGetter,
+              key: keyGetter,
+              attrs: attrsGetter,
+              bind: bindGetter,
+            } = meta
+
+            const key = keyGetter ? keyGetter(args) : null
+            const visible = visibleGetter ? visibleGetter(args) : true
+            const attrs = attrsGetter ? attrsGetter(args) : {}
+            const className = classGetter ? classGetter(args) : ''
+            const style = styleGetter ? styleGetter(args) : ''
+            const bind = bindGetter ? bindGetter() : null
+
+            // 从不显示变为显示
+            showOut = visible && !neure.visible
+
+            // 重置样式相关
+            node.classList.forEach((className) => {
+              node.classList.remove(className)
+            })
+            node.style.cssText = ''
+
+            // 移除原有的不再需要的属性
+            if (neure.attrs) {
+              each(neure.attrs, (_, key) => {
+                if (!(key in attrs)) {
+                  node.removeAttribute(key)
+                }
+              })
+            }
+
+            each(attrs, (value, key) => {
+              node.setAttribute(key, value)
+            })
+
+            if (bind) {
+              neure.bind = bind
+              changeInput(neure)
+            }
+
+            if (className) {
+              const classNames = className.split(' ')
+              classNames.forEach((item) => {
+                node.classList.add(item)
+              })
+            }
+
+            if (style) {
+              node.style.cssText = (node.style.cssText || '') + style
+            }
+
+            if (neure.visible !== visible) {
+              if (visible) {
+                const sibling = findSibling(neure)
+                parentNode.insertBefore(node, sibling)
+              }
+              else {
+                parentNode.removeChild(node)
+              }
+            }
+
+            neure.set({
+              key,
+              visible,
+              attrs,
+              className,
+              style,
+            })
+          }, (deps) => {
+            neure.deps = deps
+          })
+        }
+
+        // 从最开始的不显示，变为显示出来，需要新建child
+        if (!neure.child && showOut) {
+          this.genChildren(neure)
+          if (neure.child) {
+            this.mountNeure(neure.child, neure.node)
+          }
+          notNeedWalkToChild = true
+        }
+      }
+
+      if (!notNeedWalkToChild && neure.child) {
+        walk(neure.child)
+      }
+
+      if (neure.sibling) {
+        walk(neure.sibling)
       }
     }
+
+    walk(neure)
   }
 
   async mountStyles(styles, root) {
@@ -761,7 +758,8 @@ class Element {
 
   t(textGetter) {
     const [text, deps] = this.collect(() => textGetter())
-    const node = new TextNeure({
+    const node = new TextNeure()
+    node.set({
       type: TEXT_NODE,
       children: textGetter,
       text,
@@ -793,7 +791,8 @@ class Element {
     const { repeat: repeatGetter, await: awaitGetter } = meta
 
     if (repeatGetter) {
-      const neureList = new NeureList({
+      const neureList = new NeureList()
+      neureList.set({
         type,
         meta,
         children: childrenGetter,
@@ -828,48 +827,28 @@ class Element {
 
     if (awaitGetter) {
       const { await: _await, ...others } = meta
-      const { promise, data, error, result } = awaitGetter() // 无法进行响应式，只能一次使用
-      const neure = new AsyncNeure({
-        type,
-        meta: others,
-        children: childrenGetter,
-        args: args || {},
+      const { promise, data, error, status } = awaitGetter() // 无法进行响应式，只能一次使用
+
+      const stat = status ? [status, this.reactive(() => 'pending')] : null
+      const dt = data ? [data, this.reactive(() => null)] : null
+      const err = error ? [error, this.reactive(() => null)] : null
+
+      const passedArgs = args || {}
+      const localArgs = { ...passedArgs }
+      if (stat) {
+        localArgs[stat[0]] = stat[1]
+      }
+
+      // 真正实例化
+      const neure = createNeure(type, others, childrenGetter, localArgs, AsyncNeure)
+      neure.set({
+        promise,
+        status: stat,
+        data: dt,
+        error: err,
       })
 
-      let msg = null
-      // 必须让promise为finally后的promise，否则在其他地方用时接不住
-      neure.promise = promise.then((res) => {
-        msg = 1
-        if (data) {
-          neure.data = data
-          neure.args[data] = res
-        }
-      }).catch((err) => {
-        msg = 0
-        if (error) {
-          neure.error = error
-          neure.args[error] = err
-        }
-      }).finally(() => {
-        if (result) {
-          neure.result = result
-          neure.args[result] = msg
-        }
-
-        // 真正实例化
-        const copy = createNeure(type, others, childrenGetter, neure.args)
-        neure.set({
-          ...copy,
-          args: neure.args,
-          data: neure.data,
-          error: neure.error,
-          promise: neure.promise,
-          result: result,
-          sibling: neure.sibling,
-        })
-
-        this.genChildren(neure)
-      })
+      this.genChildren(neure)
       return neure
     }
 
@@ -998,7 +977,7 @@ async function loadDepComponents(deps) {
   }))
 }
 
-function createNeure(type, meta, children, args) {
+function createNeure(type, meta, children, args, NeureClass = Neure) {
   const {
     class: classGetter,
     style: styleGetter,
@@ -1019,7 +998,8 @@ function createNeure(type, meta, children, args) {
   const style = styleGetter ? styleGetter(args) : ''
   const bind = bindGetter ? bindGetter() : null
 
-  const neure = new Neure({
+  const neure = new NeureClass()
+  neure.set({
     type,
     meta,
     children,

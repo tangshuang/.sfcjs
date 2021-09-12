@@ -101,15 +101,15 @@ export function parseHtml(sourceCode, components, givenVars) {
           directives.push(['style', value])
         }
         else if (k === 'await') {
-          const matched = value.match(/^(\w+)(\.then\((\w+)\))?(\.catch\((\w+)\))?(\.finally\((\w+)\))?$/);
+          const matched = value.match(/^(\w+)(\.status\((\w+)\))?(\.then\((\w+)\))?(\.catch\((\w+)\))?$/);
           if (!matched) {
-            throw new Error(`await 语法不正确 await="promise.then(data).catch(error).finally(result)"`)
+            throw new Error(`await 语法不正确 await="promise.status(status).then(data).catch(error)"`)
           }
 
-          const [, _promise, , _data, , _error, , _result] = matched
-          const [promise, data, error, result] = [_promise, _data, _error, _result].map(item => item ? item.trim() : null)
-          directives.push(['await', `{promise:${promise}${data ? `,data:'${data}'` : ''}${error ? `,error:'${error}'` : ''}${result ? `,result:'${result}'` : ''}}`, true])
-          args.push(...[data, error, result].filter(item => !!item))
+          const [, _promise, , _status, , _data, , _error] = matched
+          const [promise, status, data, error] = [_promise, _status, _data, _error].map(item => item ? item.trim() : null)
+          directives.push(['await', `{promise:${promise}${data ? `,data:'${data}'` : ''}${error ? `,error:'${error}'` : ''}${status ? `,status:'${status}'` : ''}}`, true])
+          args.push(...[data, error, status].filter(item => !!item))
         }
         else if (k === 'bind') {
           const allows = ['input', 'textarea', 'select']
@@ -166,8 +166,8 @@ export function parseHtml(sourceCode, components, givenVars) {
       [data, args] = create(props, type)
     }
 
-    const subArgs = args.filter(item => !!item).join(',')
-    const subArgsStr = subArgs ? `{${subArgs}}` : ''
+    const subArgs = args.filter(item => !!item)
+    const subArgsStr = subArgs.length ? `{${subArgs.join(',')}}` : ''
 
     if (children.length && children.some(item => !!item)) {
       each(children, (child) => {
@@ -186,7 +186,13 @@ export function parseHtml(sourceCode, components, givenVars) {
     const componentName = camelcase(type, true)
     const component = components && components[componentName] ? componentName : `'${type}'`
 
-    const inner = subs.length ? `(${subArgsStr}) =>` + `[${subs.join(',')}]` : null
+    const inter = (content) => {
+      if (subArgsStr) {
+        return content.replace(new RegExp(subArgs.join('|'), 'g'), $ => `SFC.consume(${$})`)
+      }
+      return content
+    }
+    const inner = subs.length ? `(${subArgsStr}) =>` + inter(`[${subs.join(',')}]`) : null
     const params = [component, data, inner].filter(item => !!item)
     const code = `SFC.h(${params.join(',')})`
     return code

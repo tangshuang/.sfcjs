@@ -81,7 +81,7 @@ class SFC_View extends HTMLElement {
     const baseUrl = window.location.href
     const url = resolveUrl(baseUrl, src)
     const code = await getComponentCode(url)
-    // console.debug(code)
+    // console.log(code)
     const script = createScriptByBlob(code)
     script.setAttribute('sfc-src', url)
     this.absUrl = url
@@ -97,7 +97,7 @@ class SFC_View extends HTMLElement {
     await element.$ready()
     await element.setup()
     await element.mount(this.shadowRoot)
-    // console.debug(element)
+    // console.log(element)
   }
 
   disconnectedCallback() {
