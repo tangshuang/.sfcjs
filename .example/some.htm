@@ -3,6 +3,11 @@
   let some = props.someAttr
   let title = props.title
   let name = 'aaa'
+  let count = 0
+
+  function plus() {
+    count ++
+  }
 </script>
 
 <style>
@@ -13,4 +18,9 @@
   <h3>titie: {{title}}</h3>
   <div>name: {{name}}</div>
   <div>some: {{some}}</div>
+  <slot>
+    <span>default content: {{count}}</span>
+    <button @click="plus()">plus</button>
+  </slot>
+  <div>content after slot</div>
 </div>

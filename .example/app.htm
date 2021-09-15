@@ -118,7 +118,9 @@
   <some-component
     :title="name"
     :some-attr="age % 2 === 0 ? 'odd' : 'even'"
-  ></some-component>
+  >
+    <span>passed slot: {{age}}</span>
+  </some-component>
 
   <div (await)="promise.status(status)">
     <span (if)="status === 'pending'">Waiting ...</span>

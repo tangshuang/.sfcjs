@@ -376,29 +376,7 @@ class Element {
   async mountNeure(neure, root) {
     const { type, attrs, events, element, child, sibling, text, visible, className, style, bind } = neure
 
-    if (isInstanceOf(type, Component)) {
-      await element.$ready()
-      await element.setup(child)
-      const node = document.createElement('sfc-view')
-      root.appendChild(node)
-      await element.mount(node.shadowRoot)
-    }
-    else if (isInstanceOf(neure, NeureList)) {
-      if (child) {
-        await this.mountNeure(child, root)
-      }
-    }
-    else if (isInstanceOf(neure, TextNeure)) {
-      const node = document.createTextNode(text)
-      root.appendChild(node)
-      neure.node = node
-      neure.parentNode = root
-    }
-    else if (type === 'slot') {
-      const { slot } = this
-      // TODO
-    }
-    else {
+    const mount = async (type) => {
       const node = document.createElement(type)
       each(attrs, (value, key) => {
         node.setAttribute(key, value)
@@ -437,6 +415,32 @@ class Element {
       if (bind) {
         changeInput(neure)
       }
+    }
+
+    if (isInstanceOf(type, Component)) {
+      await element.$ready()
+      await element.setup(child)
+      const node = document.createElement('sfc-view')
+      root.appendChild(node)
+      // 利用原生customElement实现slot效果
+      if (child) {
+        await this.mountNeure(child, node)
+      }
+      await element.mount(node.shadowRoot)
+    }
+    else if (isInstanceOf(neure, NeureList)) {
+      if (child) {
+        await this.mountNeure(child, root)
+      }
+    }
+    else if (isInstanceOf(neure, TextNeure)) {
+      const node = document.createTextNode(text)
+      root.appendChild(node)
+      neure.node = node
+      neure.parentNode = root
+    }
+    else {
+      await mount(type)
     }
 
     neure.parentNode = root
@@ -570,7 +574,6 @@ class Element {
           })
         }
       }
-      else if (type === 'slot') {}
       else if (isInstanceOf(type, Component)) {
         const { element } = neure
         const { props: propsGetter } = meta

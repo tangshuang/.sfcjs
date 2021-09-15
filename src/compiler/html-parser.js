@@ -158,6 +158,10 @@ export function parseHtml(sourceCode, components, givenVars) {
   const build = (astNode) => {
     const [type, props, ...children] = astNode
 
+    if (!/^[a-zA-Z]/.test(type)) {
+      return null
+    }
+
     let data = ''
     let args = []
     let subs = []
@@ -178,7 +182,9 @@ export function parseHtml(sourceCode, components, givenVars) {
         }
         else {
           const node = build(child)
-          subs.push(node)
+          if (node !== null) {
+            subs.push(node)
+          }
         }
       })
     }
