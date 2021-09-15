@@ -54,4 +54,24 @@ module.exports = [
     ],
     optimization,
   },
+  {
+    mode,
+    devtool,
+    target: 'webworker',
+    entry: __dirname + '/src/tools.js',
+    output: {
+      path: __dirname + '/dist',
+      filename: 'tools.js',
+      library: 'Tools',
+      libraryTarget: 'assign-properties',
+    },
+    resolve: {
+      alias,
+      fallback,
+    },
+    plugins: [
+      defines,
+    ],
+    optimization,
+  },
 ]

@@ -1,5 +1,8 @@
 import { loadComponent } from './compiler'
-import { prettyJsCode } from './prettier'
+
+const context = {
+  options: {},
+}
 
 self.addEventListener('message', async (e) => {
   if (!e.data) {
@@ -10,13 +13,18 @@ self.addEventListener('message', async (e) => {
   const { type } = data
   if (type === 'init') {
     const { src, id } = data
-    const code = await loadComponent(src, {
-      prettyJs: prettyJsCode,
-    })
+    const code = await loadComponent(src, context.options)
     postMessage(JSON.stringify({
       type: 'inited',
       id,
       code,
     }))
+  }
+  else if (type === 'tools') {
+    const { src } = data
+    importScripts(src) // 同步的
+    if (self.Tools) {
+      Object.assign(context.options, self.Tools)
+    }
   }
 })

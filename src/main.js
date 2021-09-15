@@ -9,6 +9,11 @@ const workerSrc = currentScript.getAttribute('worker-src') || resolveUrl(baseUrl
 const workerUrl = createBlobUrl(`importScripts('${workerSrc}')`)
 const worker = new Worker(workerUrl)
 
+const toolsSrc = currentScript.getAttribute('tools-src')
+if (toolsSrc) {
+  worker.postMessage(JSON.stringify({ type: 'tools', src: resolveUrl(baseUrl, toolsSrc) }))
+}
+
 export function getComponentCode(src) {
   return new Promise((resolve, reject) => {
     const id = randomString()
@@ -40,10 +45,6 @@ export function getComponentCode(src) {
       resolve(code)
     }
     worker.addEventListener('message', onSuccess)
-    setTimeout(() => {
-      onComplete()
-      reject(new Error(`加载组件 ${src} 超时`))
-    }, 5000)
   })
 }
 
@@ -67,30 +68,20 @@ class SFC_View extends HTMLElement {
 
   async connectedCallback() {
     const src = this.getAttribute('src')
-    const auto = this.getAttribute('auto')
-    if (src) {
-      await this.setup()
+    const passive = this.getAttribute('passive')
+    if (!src) {
+      return
     }
-    if (src && auto) {
-      const { attributes } = this
-      const props = {}
-      const attrs = {}
-      each(attributes, ({ name, value }) => {
-        if (['src', 'auto'].includes(name)) {
-          return
-        }
-        if (name[0] === ':') {
-          props[name.substr(1)] = tryParse(value)
-        }
-        else if (/^[a-z]/.test(name)) {
-          attrs[name] = value
-        }
-      })
-      const meta = {
-        props,
-        attrs,
-      }
-      await this.mount(meta)
+
+    // 这里使用了一个技巧，就是在一开始的时候，让slot存在，显示出内部信息，当需要挂载的时候清空
+    // 如果不做这个操作，那么当<sfc-view>挂载之后，就会立即清空内部的内容
+    // 这个能力仅对传入了src的有效，传入src的是真正用于入口的组件，没有传的是内部使用，不提供这个功能
+    // 只有当调用mount之后，才会消失，如果开发者自己手动调用过程中想提前清空，也可以调用clear
+    this.shadowRoot.innerHTML = '<slot></slot>'
+
+    await this.setup()
+    if (!passive) {
+      await this.mount()
     }
   }
 
@@ -107,13 +98,38 @@ class SFC_View extends HTMLElement {
     this.$ready(true)
   }
 
-  async mount(meta) {
+  clear() {
+    this.shadowRoot.innerHTML = '' // 清空内容
+  }
+
+  async mount(meta = {}) {
+    const { attributes } = this
+    const props = {}
+    const attrs = {}
+    each(attributes, ({ name, value }) => {
+      if (['src', 'passive'].includes(name)) {
+        return
+      }
+      if (name[0] === ':') {
+        props[name.substr(1)] = tryParse(value)
+      }
+      else if (/^[a-z]/.test(name)) {
+        attrs[name] = value
+      }
+    })
+    const info = {
+      props,
+      attrs,
+      ...meta,
+    }
+
     await this.$ready()
     const { absUrl } = this
-    const element = initComponent(absUrl, meta)
+    const element = initComponent(absUrl, info)
     this.rootElement = element
     await element.$ready()
     await element.setup()
+    this.clear()
     await element.mount(this.shadowRoot)
     // console.log(element)
   }

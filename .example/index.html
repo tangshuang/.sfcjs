@@ -1,5 +1,13 @@
 <!DOCTYPE html>
 
-<sfc-view src="./app.htm" auto="1" :dog="{ name: 'tydi' }"></sfc-view>
+<style>
+  span {
+    color: rgb(0, 64, 202);
+  }
+</style>
 
-<script src="../dist/index.js"></script>
+<sfc-view src="./app.htm" :dog="{ name: 'tydi' }">
+  <span>Loading...</span>
+</sfc-view>
+
+<script src="../dist/index.js" tools-src="../dist/tools.js"></script>
