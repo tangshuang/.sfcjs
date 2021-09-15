@@ -1,5 +1,6 @@
 <script>
   const props = await import('sfc:props')
+  let some = props.someAttr
   let title = props.title
   let name = 'aaa'
 </script>
@@ -10,5 +11,6 @@
 
 <div>
   <h3>titie: {{title}}</h3>
-  name: {{name}}
+  <div>name: {{name}}</div>
+  <div>some: {{some}}</div>
 </div>

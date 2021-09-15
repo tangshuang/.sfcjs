@@ -1,10 +1,12 @@
-import { each, resolveUrl, createScriptByBlob, insertScript } from './utils'
+import { each, resolveUrl, createScriptByBlob, insertScript, removeBy } from './utils'
 import { getComponentCode } from './main'
 import {
   createProxy, isObject, isArray,
+  parse,
   remove, assign, isUndefined, isShallowEqual, isString,
   isInstanceOf, decideby, isOneInArray, isFunction,
   createRandomString,
+  uniqueArray,
 } from 'ts-fns'
 import produce from 'immer'
 
@@ -157,6 +159,12 @@ class Element {
   reactive(getter, computed) {
     const [value, deps] = computed ? this.collect(() => getter()) : [getter(), []]
     const create = (value) => createProxy(value, {
+      get: (_, value) => {
+        if (this._isCollecting) {
+          this.collector.add(reactor)
+        }
+        return value
+      },
       writable: () => false,
       receive: (...args) => {
         if (args.length === 1) {
@@ -182,6 +190,7 @@ class Element {
       $$typeof: REACTIVE_TYPE,
       value: create(value),
       getter,
+      $id: createRandomString(8),
     }
 
     if (deps.length) {
@@ -206,11 +215,6 @@ class Element {
     if (this._isCollecting) {
       this.collector.add(reactor)
     }
-
-    // if (this._isMounted) {
-    //   this.schedule.add(reactor)
-    //   this.scheduleUpdate()
-    // }
 
     const { value } = reactor
     return value
@@ -239,8 +243,6 @@ class Element {
     if (reactor.$$typeof !== REACTIVE_TYPE) {
       return getter()
     }
-
-    // 一旦一个变量被更新，那么它就失去了依赖其他变量响应式的能力
 
     const value = getter(reactor.value)
     reactor.value = value
@@ -278,13 +280,16 @@ class Element {
       const all = new Set() // 所有的
       const graph = [] // 按特定顺序的
 
+      const depRelMap = new Map() // key: reactor -> value: relation
+
       this.relations.forEach((item) => {
         item.deps.forEach((dep) => {
           deps.push(dep)
-          depBys.push(item)
+          depBys.push(item.by)
           all.add(dep)
         })
-        all.add(item)
+        all.add(item.by)
+        depRelMap.set(item.by, item)
       })
 
       // 找出只被依赖，不需要依赖别人的
@@ -309,21 +314,25 @@ class Element {
       // 根据依赖关系，计算全部变量
       let changed = [...queue]
       graph.forEach((items) => {
-        each(items, (item) => {
-          if (!item.deps) {
+        each(items, (reactor) => {
+          const rel = depRelMap.get(reactor)
+          // 没有任何依赖的
+          if (!rel || !rel.deps) {
             return
           }
           // 重新计算，并将该项放到changed中提供给下一个组做判断
-          if (item.deps.some(dep => inDeps(dep, changed))) {
-            const reactor = item.by
+          if (rel.deps.some(dep => inDeps(dep, changed))) {
             const { getter } = reactor
+            if (!getter) {
+              return
+            }
             const [value, deps] = this.collect(() => getter())
             reactor.value = value
             // 自引用，比如自加操作等。这时将原始的依赖进行展开。同时可能有新的依赖
             if (deps.includes(reactor)) {
-              deps.splice(deps.indexOf(reactor), 1, ...item.deps)
+              deps.splice(deps.indexOf(reactor), 1, ...rel.deps)
             }
-            item.deps = uniqueDeps(deps)
+            rel.deps = uniqueDeps(deps)
             changed = uniqueDeps([...changed, reactor])
           }
         })
@@ -344,12 +353,12 @@ class Element {
         this.brushesAt.textContent = `:host {\n${brushesContent}\n}`
       }
 
+      this.queue.clear()
+      this._queueUpdating = false
+
       // 根据变化情况更新DOM
       // console.log(changed)
       this.updateNeure(this.neure, changed)
-
-      this.queue.clear()
-      this._queueUpdating = false
     })
   }
 
@@ -553,7 +562,7 @@ class Element {
       else if (isInstanceOf(neure, TextNeure)) {
         if (!changed || (deps?.length && isOneInArray(changed, deps))) {
           this.collect(() => {
-            const text = neure.children()
+            const text = children()
             neure.node.textContent = text
             neure.text = text
           }, (deps) => {
@@ -562,7 +571,15 @@ class Element {
         }
       }
       else if (type === 'slot') {}
-      else if (isInstanceOf(type, Component)) {}
+      else if (isInstanceOf(type, Component)) {
+        const { element } = neure
+        const { props: propsGetter } = meta
+        const [props, deps] = this.collect(() => propsGetter(args))
+        neure.set({
+          deps,
+        })
+        updateComponent(element, { props })
+      }
       else {
         let showOut = false
 
@@ -922,18 +939,19 @@ export function initComponent(absUrl, meta = {}) {
     const { events = {} } = meta
     const scope = {
       ...components,
-      props: new Proxy(element.props, {
-        get(props, key) {
-          const value = props[key]
+      props: createProxy({}, {
+        get: (keyPath) => {
+          const value = parse(element.props, keyPath)
           if (element._isCollecting) {
             element.collector.add({
               $$typeof: PROP_TYPE,
-              key,
+              key: keyPath[0],
               value,
             })
           }
           return value
         },
+        writable: () => false,
       }),
       emit: (event, ...args) => {
         const callback = events[event]
@@ -961,6 +979,35 @@ export function initComponent(absUrl, meta = {}) {
   } ());
 
   return element
+}
+
+async function updateComponent(element, meta) {
+  const originProps = element.props
+  const { props = {} } = meta
+  const originKeys = Object.keys(originProps)
+  const newKeys = Object.keys(props)
+  // 当前已经渲染出来的props
+  const keys = uniqueArray([...originKeys, ...newKeys])
+  // 找出发生变化的props
+  const changed = keys.map((key) => {
+    const value = props[key]
+    if (originProps[key] !== value) {
+      return {
+        key,
+        value,
+      }
+    }
+  }).filter(item => !!item)
+  // 更新组件
+  element.props = props
+  each(changed, (o) => {
+    const reactor = {
+      $$typeof: PROP_TYPE,
+      ...o,
+    }
+    element.queue.add(reactor)
+  })
+  element.queueUpdate()
 }
 
 async function loadDepComponents(deps) {

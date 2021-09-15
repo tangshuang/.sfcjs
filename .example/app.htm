@@ -1,6 +1,8 @@
 <script>
   import SomeComponent from 'sfc:./some.htm'
   import emit from 'sfc:emit'
+  import { dog } from 'sfc:props'
+
   import { each } from '../src/utils.js'
 
   let name = 'app_name'
@@ -102,6 +104,7 @@
 
 <div class="app-{{name}}">
   <div>name: <span>{{name}}</span></div>
+  <div>My Dog: {{dog.name}}</div>
   <div
     class="age"
     (class)="'age-' + age"
@@ -113,8 +116,8 @@
   </div>
   <button @click="grow(event)">grow</button>
   <some-component
-    :title="'xxx'"
-    :some-attr="age * 5 > 10 ? 'ok' : null"
+    :title="name"
+    :some-attr="age % 2 === 0 ? 'odd' : 'even'"
   ></some-component>
 
   <div (await)="promise.status(status)">

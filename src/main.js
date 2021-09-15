@@ -1,4 +1,4 @@
-import { resolveUrl, randomString, createBlobUrl, createScriptByBlob, insertScript, each } from './utils'
+import { resolveUrl, randomString, createBlobUrl, createScriptByBlob, insertScript, each, tryParse } from './utils'
 import { initComponent } from './framework'
 
 const { currentScript } = document
@@ -72,7 +72,25 @@ class SFC_View extends HTMLElement {
       await this.setup()
     }
     if (src && auto) {
-      await this.mount()
+      const { attributes } = this
+      const props = {}
+      const attrs = {}
+      each(attributes, ({ name, value }) => {
+        if (['src', 'auto'].includes(name)) {
+          return
+        }
+        if (name[0] === ':') {
+          props[name.substr(1)] = tryParse(value)
+        }
+        else if (/^[a-z]/.test(name)) {
+          attrs[name] = value
+        }
+      })
+      const meta = {
+        props,
+        attrs,
+      }
+      await this.mount(meta)
     }
   }
 

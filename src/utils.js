@@ -123,3 +123,27 @@ export async function insertScript(script) {
     document.body.appendChild(script)
   })
 }
+
+export function tryParse(str) {
+  try {
+    const jsonStr = str.replace(/'/g, '"').replace(/(\w+:)|(\w+ :)/g, function(s) {
+      return '"' + s.substring(0, s.length-1) + '":';
+    })
+    return JSON.parse(jsonStr)
+  }
+  catch (e) {
+  }
+}
+
+/**
+ * 根据条件删除元素
+ * @param {*} items
+ * @param {*} fn
+ */
+export function removeBy(items, fn) {
+  items.forEach((item, i) => {
+    if (fn(item, i, items)) {
+      items.splice(i, 1)
+    }
+  })
+}

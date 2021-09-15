@@ -13,7 +13,7 @@ export function parseHtml(sourceCode, components, givenVars) {
     const tokens = tokenize(code)
     const localVars = { ...givenVars, ...vars }
     each(tokens, (item, i) => {
-      if (localVars[item]) {
+      if (localVars[item] && tokens[i - 1] !== '.') {
         tokens[i] = `SFC.consume(${item})`
       }
     })
@@ -188,7 +188,7 @@ export function parseHtml(sourceCode, components, givenVars) {
 
     const inter = (content) => {
       if (subArgsStr) {
-        return content.replace(new RegExp(subArgs.join('|'), 'g'), $ => `SFC.consume(${$})`)
+        return consumeVars(content, subArgs)
       }
       return content
     }

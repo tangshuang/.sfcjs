@@ -394,7 +394,7 @@ export function parseJs(sourceCode) {
       code += exp
     }
     // consume
-    else if (vars[token]) {
+    else if (vars[token] && !match(i - 1, '.')) {
       const next = `SFC.consume(${token})`
       code += next
     }
