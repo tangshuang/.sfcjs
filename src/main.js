@@ -1,4 +1,4 @@
-import { resolveUrl, randomString, createBlobUrl, createScriptByBlob, insertScript, each, tryParse } from './utils'
+import { resolveUrl, randomString, createBlobUrl, createScriptByBlob, insertScript, each, tryParse, createReady } from './utils'
 import { initComponent } from './framework'
 
 const { currentScript } = document
@@ -54,16 +54,7 @@ class SFC_View extends HTMLElement {
     this.attachShadow({ mode: 'open' })
     this.rootElement = null
 
-    this._ready = new Promise((r) => {
-      this.__ready = r
-    })
-  }
-
-  $ready(resolved) {
-    if (resolved) {
-      this.__ready()
-    }
-    return this._ready
+    this.$ready = createReady()
   }
 
   async connectedCallback() {
@@ -125,9 +116,8 @@ class SFC_View extends HTMLElement {
 
     await this.$ready()
     const { absUrl } = this
-    const element = initComponent(absUrl, info)
+    const element = await initComponent(absUrl, info)
     this.rootElement = element
-    await element.$ready()
     await element.setup()
     this.clear()
     await element.mount(this.shadowRoot)

@@ -19,7 +19,6 @@
   function grow(e) {
     age ++;
     weight += 2;
-    age = age + 1;
     emit('grow', age);
   }
 
@@ -119,6 +118,7 @@
   <some-component
     :title="name"
     :some-attr="age % 2 === 0 ? 'odd' : 'even'"
+    (if)="age > 11"
   >
     <span>passed slot: {{age}}</span>
   </some-component>

@@ -1,4 +1,4 @@
-import { each, resolveUrl, createScriptByBlob, insertScript, removeBy } from './utils'
+import { each, resolveUrl, createScriptByBlob, insertScript, removeBy, createReady } from './utils'
 import { getComponentCode } from './main'
 import {
   createProxy, isObject, isArray,
@@ -143,17 +143,7 @@ class Element {
   _isMounted = false
 
   constructor(props) {
-    this._ready = new Promise((resolve) => {
-      this.__ready = resolve
-    })
     this.props = Object.freeze(props)
-  }
-
-  $ready(resolved) {
-    if (resolved) {
-      this.__ready()
-    }
-    return this._ready
   }
 
   reactive(getter, computed) {
@@ -373,10 +363,10 @@ class Element {
     this._isMounted = true
   }
 
-  async mountNeure(neure, root) {
-    const { type, attrs, events, element, child, sibling, text, visible, className, style, bind } = neure
+  mountNeure(neure, root) {
+    const { type, attrs, events, child, sibling, text, visible, className, style, bind } = neure
 
-    const mount = async (type) => {
+    const mount = (type) => {
       const node = document.createElement(type)
       each(attrs, (value, key) => {
         node.setAttribute(key, value)
@@ -409,7 +399,7 @@ class Element {
 
       neure.node = node
       if (child) {
-        await this.mountNeure(child, node)
+        this.mountNeure(child, node)
       }
 
       if (bind) {
@@ -418,30 +408,22 @@ class Element {
     }
 
     if (isInstanceOf(type, Component)) {
-      await element.$ready()
-      await element.setup(child)
-      if (element.neure) { // 可能内部完全没东西
-        const node = document.createElement('sfc-view')
-        neure.node = node
-        neure.parentNode = root
-        element.root = node.shadowRoot
-        // 利用原生customElement实现slot效果
+      // 先挂上去占位符一样
+      const node = document.createElement('sfc-view')
+      neure.node = node
+      neure.parentNode = root
+
+      if (visible) {
+        root.appendChild(node)
+        this.mountComponent(neure)
         if (child) {
-          await this.mountNeure(child, node)
+          this.mountNeure(child, node)
         }
-        // 不一定挂载到真正的文档中
-        if (visible) {
-          root.appendChild(node)
-          await element.mount(node.shadowRoot)
-        }
-      }
-      else {
-        console.error(`${type} 组件文件未提供渲染的内容`)
       }
     }
     else if (isInstanceOf(neure, NeureList)) {
       if (child) {
-        await this.mountNeure(child, root)
+        this.mountNeure(child, root)
       }
     }
     else if (isInstanceOf(neure, TextNeure)) {
@@ -451,13 +433,13 @@ class Element {
       neure.parentNode = root
     }
     else {
-      await mount(type)
+      mount(type)
     }
 
     neure.parentNode = root
 
     if (sibling) {
-      await this.mountNeure(sibling, root)
+      this.mountNeure(sibling, root)
     }
 
     // 等到全部初始状态挂载完毕之后，才能进入到更新操作，有一个mounted标记控制
@@ -488,10 +470,35 @@ class Element {
     }
   }
 
+  async mountComponent(componentNeure) {
+    const { type, props, events, node, child } = componentNeure
+    componentNeure.$ready = createReady()
+
+    // 组件在挂载的时候才去请求资源
+    const element = await initComponent(type, { props, events })
+    componentNeure.element = element
+    element.root = node.shadowRoot
+
+    await element.setup(child)
+
+    if (!element.neure) { // 可能内部完全没东西
+      throw new Error(`${type} 组件文件未提供渲染的内容`)
+    }
+
+    // 利用原生customElement实现slot效果
+    if (child) {
+      await this.mountNeure(child, node)
+    }
+
+    await element.mount(node.shadowRoot)
+
+    componentNeure.$ready(true)
+  }
+
   // 根据变化情况更新DOM
   updateNeure(neure, changed) {
     const walk = (neure) => {
-      const { type, meta, children, deps, repeat, node, parentNode, args, bind } = neure
+      const { type, meta, children, deps, repeat, node, parentNode, args, bind, visible } = neure
 
       let notNeedWalkToChild = false
 
@@ -586,7 +593,8 @@ class Element {
         }
       }
       else if (isInstanceOf(type, Component)) {
-        const { element } = neure
+        let showOut = false
+
         const {
           class: classGetter,
           style: styleGetter,
@@ -598,7 +606,7 @@ class Element {
           bind: bindGetter,
         } = meta
 
-        this.collect(async () => {
+        this.collect(() => {
           const key = keyGetter ? keyGetter(args) : null
           const visible = visibleGetter ? visibleGetter(args) : true
           const attrs = attrsGetter ? attrsGetter(args) : {}
@@ -608,21 +616,18 @@ class Element {
           const style = styleGetter ? styleGetter(args) : ''
           const bind = bindGetter ? bindGetter() : null
 
+          // 从不显示变为显示
+          showOut = visible && !neure.visible
+
           if (neure.visible !== visible) {
             if (visible) {
               const sibling = findSibling(neure)
               parentNode.insertBefore(node, sibling)
-
-              if (!element._isMounted) {
-                await element.mount(node.shadowRoot)
-              }
             }
             else {
               parentNode.removeChild(node)
             }
           }
-
-          await updateComponent(element, { props })
 
           neure.set({
             key,
@@ -634,6 +639,24 @@ class Element {
             style,
             bind,
           })
+
+          // 从最开始的不显示，变为显示出来，需要新建child
+          if (!neure.$ready && showOut) {
+            this.mountComponent(neure)
+          }
+          if (!neure.child && showOut) {
+            this.genChildren(neure)
+            if (neure.child) {
+              this.mountNeure(neure.child, neure.node)
+            }
+            notNeedWalkToChild = true
+          }
+
+          if (neure.$ready) {
+            neure.$ready().then(() => {
+              updateComponent(neure.element, { props })
+            })
+          }
         }, (deps) => {
           neure.deps = deps
         })
@@ -741,7 +764,7 @@ class Element {
     walk(neure)
   }
 
-  async mountStyles(styles, root) {
+  mountStyles(styles, root) {
     const list = []
     const brushes = []
     const create = (attrs) => {
@@ -816,7 +839,6 @@ class Element {
     this.root = null
   }
 
-  // should must run after ready()
   async setup(slot) {
     const { context } = this
     const { render, dye } = context
@@ -933,6 +955,7 @@ class Element {
 
   genChildren(neure) {
     const { visible, children, args } = neure
+
     if (!visible) {
       return
     }
@@ -943,7 +966,7 @@ class Element {
 
     const subs = children(args)
     subs.reduce((backer, item) => {
-      item.parent = parent
+      item.parent = neure
       if (!parent.child) {
         parent.child = item
       }
@@ -980,66 +1003,62 @@ class Element {
   }
 }
 
-export function initComponent(absUrl, meta = {}) {
+export async function initComponent(absUrl, meta = {}) {
   const { props = {} } = meta
   const element = new Element(props)
 
-  ;(async function() {
-    const component = isInstanceOf(absUrl, Component) ? absUrl : components[absUrl]
+  const component = isInstanceOf(absUrl, Component) ? absUrl : components[absUrl]
 
-    if (!component) {
-      throw new Error(`${absUrl} 组件尚未加载`)
-    }
+  if (!component) {
+    throw new Error(`${absUrl} 组件尚未加载`)
+  }
 
-    const { deps, fn } = component
-    await loadDepComponents(deps)
+  const { deps, fn } = component
+  await loadDepComponents(deps)
 
-    const { events = {} } = meta
-    const scope = {
-      ...components,
-      props: createProxy({}, {
-        get: (keyPath) => {
-          const value = parse(element.props, keyPath)
-          if (element._isCollecting) {
-            element.collector.add({
-              $$typeof: PROP_TYPE,
-              key: keyPath[0],
-              value,
-            })
-          }
-          return value
-        },
-        writable: () => false,
-      }),
-      emit: (event, ...args) => {
-        const callback = events[event]
-        if (!callback) {
-          return
+  const { events = {} } = meta
+  const scope = {
+    ...components,
+    props: createProxy({}, {
+      get: (keyPath) => {
+        const value = parse(element.props, keyPath)
+        if (element._isCollecting) {
+          element.collector.add({
+            $$typeof: PROP_TYPE,
+            key: keyPath[0],
+            value,
+          })
         }
-        return callback(...args)
+        return value
       },
-    }
-    const vars = deps.map(dep => scope[dep])
+      writable: () => false,
+    }),
+    emit: (event, ...args) => {
+      const callback = events[event]
+      if (!callback) {
+        return
+      }
+      return callback(...args)
+    },
+  }
+  const vars = deps.map(dep => scope[dep])
 
-    const inside = Object.freeze({
-      h: element.h.bind(element),
-      t: element.t.bind(element),
-      r: element.r.bind(element),
-      reactive: element.reactive.bind(element),
-      consume: element.consume.bind(element),
-      update: element.update.bind(element),
-    })
+  const inside = Object.freeze({
+    h: element.h.bind(element),
+    t: element.t.bind(element),
+    r: element.r.bind(element),
+    reactive: element.reactive.bind(element),
+    consume: element.consume.bind(element),
+    update: element.update.bind(element),
+  })
 
-    const context = await Promise.resolve(fn.call(inside, ...vars))
-    element.context = context
-
-    element.$ready(true)
-  } ());
+  const context = await Promise.resolve(fn.call(inside, ...vars))
+  element.context = context
 
   return element
 }
 
-async function updateComponent(element, meta) {
+function updateComponent(element, meta) {
   const originProps = element.props
   const { props = {} } = meta
   const originKeys = Object.keys(originProps)
@@ -1120,11 +1139,6 @@ function createNeure(type, meta, children, args, NeureClass = Neure) {
     style,
     bind,
   })
-
-  if (isInstanceOf(type, Component)) {
-    const element = initComponent(type, { props, events })
-    neure.set({ element })
-  }
 
   return neure
 }

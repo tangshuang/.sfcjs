@@ -147,3 +147,17 @@ export function removeBy(items, fn) {
     }
   })
 }
+
+export function createReady() {
+  let resolve = null
+  const promise = new Promise((r) => {
+    resolve = r
+  })
+
+  return (resolved) => {
+    if (resolved) {
+      resolve()
+    }
+    return promise
+  }
+}
