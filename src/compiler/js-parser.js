@@ -1,5 +1,5 @@
 const OPERATORS = ['++', '--', '**']
-const SPECIARES = ['(', ')', '[', ']', '{', '}', ';', '\n']
+const SPECIARES = ['(', ')', '[', ']', '{', '}', ';', '\n', '=']
 const MODIFIERS = ['+=', '-=', '*=', '/=', '%=']
 
 export function tokenize(code) {
@@ -203,6 +203,10 @@ export function parseJs(sourceCode) {
       ) {
         curr ++
         nextToken = tokens[curr]?.trim()
+        if (curr >= tokens.length) {
+          nextToken = ''
+          break
+        }
       }
 
       if (

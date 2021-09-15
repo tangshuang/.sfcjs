@@ -1,38 +1,39 @@
 <script>
-  import SomeComponent from 'sfc:./some.htm'
-  import emit from 'sfc:emit'
-  import { dog } from 'sfc:props'
+  import SomeComponent from 'sfc:./some.htm';
+  import emit from 'sfc:emit';
+  import { dog } from 'sfc:props';
 
-  import { each } from '../src/utils.js'
+  import { each } from '../src/utils.js';
 
-  let name = 'app_name'
-  let age = 10
+  let name = 'app_name';
+  let age = 10;
 
   let some = {
     name: 'name',
     height: age * 50,
-  }
+  };
 
   // 非依赖计算变量
-  var weight = age * 2
+  var weight = age * 2;
 
   function grow(e) {
-    age ++
-    weight += 2
-    emit('grow', age)
+    age ++;
+    weight += 2;
+    age = age + 1;
+    emit('grow', age);
   }
 
   const colors = [
     '#fee',
     '#ccd',
     '#a97',
-  ]
+  ];
 
-  let selectedColor = colors[1]
+  let selectedColor = colors[1];
 
   const promise = new Promise((resolve) => {
-    setTimeout(resolve, 3000)
-  })
+    setTimeout(resolve, 3000);
+  });
 </script>
 
 <style>

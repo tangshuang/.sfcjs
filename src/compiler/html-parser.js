@@ -71,7 +71,6 @@ export function parseHtml(sourceCode, components, givenVars) {
       }
       else if (key.indexOf('@') === 0) {
         const k = key.substr(1)
-        const v = createValue()
         events.push([k, `event => {${value}}`])
       }
       else if (/^\(.*?\)$/.test(key)) {

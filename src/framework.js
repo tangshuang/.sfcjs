@@ -420,13 +420,24 @@ class Element {
     if (isInstanceOf(type, Component)) {
       await element.$ready()
       await element.setup(child)
-      const node = document.createElement('sfc-view')
-      root.appendChild(node)
-      // 利用原生customElement实现slot效果
-      if (child) {
-        await this.mountNeure(child, node)
+      if (element.neure) { // 可能内部完全没东西
+        const node = document.createElement('sfc-view')
+        neure.node = node
+        neure.parentNode = root
+        element.root = node.shadowRoot
+        // 利用原生customElement实现slot效果
+        if (child) {
+          await this.mountNeure(child, node)
+        }
+        // 不一定挂载到真正的文档中
+        if (visible) {
+          root.appendChild(node)
+          await element.mount(node.shadowRoot)
+        }
       }
-      await element.mount(node.shadowRoot)
+      else {
+        console.error(`${type} 组件文件未提供渲染的内容`)
+      }
     }
     else if (isInstanceOf(neure, NeureList)) {
       if (child) {
@@ -576,12 +587,56 @@ class Element {
       }
       else if (isInstanceOf(type, Component)) {
         const { element } = neure
-        const { props: propsGetter } = meta
-        const [props, deps] = this.collect(() => propsGetter(args))
-        neure.set({
-          deps,
+        const {
+          class: classGetter,
+          style: styleGetter,
+          visible: visibleGetter,
+          key: keyGetter,
+          attrs: attrsGetter,
+          props: propsGetter,
+          events: eventsGetter,
+          bind: bindGetter,
+        } = meta
+
+        this.collect(async () => {
+          const key = keyGetter ? keyGetter(args) : null
+          const visible = visibleGetter ? visibleGetter(args) : true
+          const attrs = attrsGetter ? attrsGetter(args) : {}
+          const props = propsGetter ? propsGetter(args) : {}
+          const events = eventsGetter ? eventsGetter(args) : {}
+          const className = classGetter ? classGetter(args) : ''
+          const style = styleGetter ? styleGetter(args) : ''
+          const bind = bindGetter ? bindGetter() : null
+
+          if (neure.visible !== visible) {
+            if (visible) {
+              const sibling = findSibling(neure)
+              parentNode.insertBefore(node, sibling)
+
+              if (!element._isMounted) {
+                await element.mount(node.shadowRoot)
+              }
+            }
+            else {
+              parentNode.removeChild(node)
+            }
+          }
+
+          await updateComponent(element, { props })
+
+          neure.set({
+            key,
+            visible,
+            attrs,
+            props,
+            events,
+            className,
+            style,
+            bind,
+          })
+        }, (deps) => {
+          neure.deps = deps
         })
-        updateComponent(element, { props })
       }
       else {
         let showOut = false
