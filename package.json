@@ -1,6 +1,6 @@
 {
   "name": "sfcjs",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Cool runtime single file component",
   "main": "dist/index.js",
   "scripts": {
