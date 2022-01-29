@@ -1,5 +1,7 @@
 # SFCJS
 
+**Project moved to https://github.com/tencent-cdc/sfcjs, this repo will not update any more.**
+
 Amazing library to write single file component based UI in web conveniently.
 
 **POC, NEVER USE IT IN PRODUCTION ENVIRONMENT!!!!**
